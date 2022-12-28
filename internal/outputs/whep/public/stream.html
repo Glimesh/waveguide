@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WHEP Stream</title>
+
+</head>
+
+<body>
+    <h1>StreamID={{.StreamID}}</h1>
+
+
+    <video id="video1" autoplay controls muted allowfullscreen></video>
+
+    <pre id="log"></pre>
+
+    <pre id="localSessionDescription"></pre>
+
+
+    <script>
+        let endpoint = "http://localhost:8091/whep/endpoint";
+        let videoEl = document.getElementById("video1");
+
+        const log = msg => {
+            document.getElementById("log").innerHTML += msg + "<br>";
+        }
+
+        log("Starting WebRTC connection");
+
+        async function setupStreamFromEndpoint(endpoint, videoEl) {
+            let pc = new RTCPeerConnection({
+                // iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] 
+            });
+            // pc.addTransceiver('video', { 'direction': 'sendrecv' });
+
+            pc.ontrack = function (event) {
+                console.log("ON TRACK", event);
+                videoEl.srcObject = event.streams[0];
+                // var el = document.createElement(event.track.kind)
+                // el.srcObject = event.streams[0]
+                // el.autoplay = true
+                // el.controls = true
+
+                // document.getElementById('remoteVideos').appendChild(el)
+            }
+
+            pc.oniceconnectionstatechange = e => {
+                if (pc.iceGatheringState === "complete") {
+                    // const senders = pc.getSenders();
+
+                    // senders.forEach((sender) => {
+                    //     if (sender.track.kind === "video") {
+                    //         console.log("Video: ", sender.getParameters().codecs);
+                    //     }
+                    //     if (sender.track.kind === "audio") {
+                    //         console.log("Audio: ", sender.getParameters().codecs);
+                    //     }
+                    // });
+                }
+                log("oniceconnectionstatechange: " + pc.iceConnectionState);
+            }
+            pc.onicecandidate = event => {
+                console.log("Got Ice Candidate", event);
+                // if (event.candidate === null) {
+                //     document.getElementById('localSessionDescription').value = btoa(JSON.stringify(pc.localDescription))
+                // }
+            }
+
+            const resp = await fetch("http://localhost:8091/whep/endpoint", {
+                method: 'POST',
+                cache: 'no-cache',
+                headers: {
+                    'Accept': 'application/sdp'
+                },
+                body: ""
+            });
+            if (resp.status !== 201) {
+                console.log('failed to negotiate')
+                // setTimeout(() => {
+                //     console.log('timeout/rollback')
+                //     pc.setLocalDescription({ type: 'rollback' })
+                //     pc.restartIce()
+                // }, 2000)
+                return;
+            }
+
+            let body = await resp.text()
+
+            await pc.setRemoteDescription(new RTCSessionDescription({
+                type: "offer",
+                sdp: body
+            }));
+            // let answer = await pc.createAnswer();
+            // await pc.setLocalDescription(answer);
+            pc.createAnswer().then(answer => {
+                pc.setLocalDescription(answer)
+
+                fetch(resp.headers.get("location"), {
+                    method: "PATCH",
+                    headers: {
+                        'Accept': 'application/sdp'
+                    },
+                    body: answer.sdp
+                }).then((resp2) => {
+                    // console.log(resp2);
+                    // console.log(esp2.text());
+                })
+            });
+        }
+
+        setupStreamFromEndpoint(endpoint, videoEl);
+    </script>
+</body>
+
+</html>
