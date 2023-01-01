@@ -6,7 +6,7 @@ import (
 )
 
 type Client struct {
-	ClientHostname string
+	hostname string
 
 	config    *Config
 	log       logrus.FieldLogger
@@ -37,10 +37,10 @@ type Config struct {
 	Callbacks Callbacks
 }
 
-func New(config Config) *Client {
+func New(config Config, hostname string) *Client {
 	return &Client{
-		ClientHostname: config.Hostname,
-		config:         &config,
+		hostname: hostname,
+		config:   &config,
 	}
 }
 
@@ -73,5 +73,8 @@ func (client *Client) StartStream(channelID control.ChannelID, streamID control.
 	return nil
 }
 func (client *Client) StopStream(channelID control.ChannelID, streamID control.StreamID) error {
+	return nil
+}
+func (client *Client) Heartbeat(channelID control.ChannelID) error {
 	return nil
 }

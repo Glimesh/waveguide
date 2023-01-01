@@ -78,7 +78,11 @@ func (s *WHEPServer) Listen(ctx context.Context) {
 		})
 
 		// Importantly, the track needs to be added before the offer (duh!)
-		for _, track := range s.control.GetTracks(1234) {
+		tracks, err := s.control.GetTracks(1234)
+		if err != nil {
+			panic(err)
+		}
+		for _, track := range tracks {
 			peerConnection.AddTrack(track)
 		}
 

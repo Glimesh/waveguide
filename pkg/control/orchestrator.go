@@ -13,6 +13,7 @@ type Orchestrator interface {
 
 	StartStream(channelID ChannelID, streamID StreamID) error
 	StopStream(channelID ChannelID, streamID StreamID) error
+	Heartbeat(channelID ChannelID) error
 
 	// TODO: Be less specific to the FTL Orchestrator
 	// SendIntro(message interface{})

@@ -14,6 +14,7 @@ import (
 	"github.com/Glimesh/waveguide/internal/outputs/whep"
 	"github.com/Glimesh/waveguide/pkg/control"
 	"github.com/Glimesh/waveguide/pkg/orchestrators/dummy_orchestrator"
+	"github.com/Glimesh/waveguide/pkg/orchestrators/rt_orchestrator"
 	"github.com/Glimesh/waveguide/pkg/services/dummy_service"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
@@ -48,7 +49,11 @@ func main() {
 	var orchestrator control.Orchestrator
 	switch viper.GetString("control.orchestrator") {
 	case "dummy":
-		orchestrator = dummy_orchestrator.New(dummy_orchestrator.Config{})
+		orchestrator = dummy_orchestrator.New(dummy_orchestrator.Config{}, hostname)
+	case "rt":
+		var rtConfig rt_orchestrator.Config
+		unmarshalConfig("orchestrator.rtrouter", &rtConfig)
+		orchestrator = rt_orchestrator.New(rtConfig, hostname)
 	}
 	service.SetLogger(log.WithField("orchestrator", service.Name()))
 

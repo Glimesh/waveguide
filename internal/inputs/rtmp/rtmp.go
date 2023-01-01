@@ -206,11 +206,6 @@ func (h *connHandler) OnPublish(ctx *gortmp.StreamContext, timestamp uint32, cmd
 	h.channelID = control.ChannelID(u64)
 	h.streamKey = []byte(auth[1])
 
-	if err := h.control.NewStream(h.channelID); err != nil {
-		h.log.Error(err)
-		return err
-	}
-
 	h.started = true
 
 	if err := h.control.Authenticate(h.channelID, h.streamKey); err != nil {
@@ -266,12 +261,6 @@ func (h *connHandler) OnClose() {
 	}
 	h.authenticated = false
 
-	if h.started {
-		if err := h.control.RemoveStream(h.channelID); err != nil {
-			h.log.Error(err)
-			// panic(err)
-		}
-	}
 	h.started = false
 
 	if h.audioDecoder != nil {

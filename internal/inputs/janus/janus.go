@@ -165,7 +165,7 @@ func (s *JanusSource) Listen(ctx context.Context) {
 
 func (s *JanusSource) negotiate(sdpString string, pluginUrl string) {
 	var err error
-	s.control.AddChannel(control.ChannelID(s.config.ChannelId))
+	s.control.StartStream(control.ChannelID(s.config.ChannelId))
 
 	videoTrack, videoTrackErr := webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264}, "video", "pion")
 	if videoTrackErr != nil {

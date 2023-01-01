@@ -60,7 +60,7 @@ func (s *FSSource) Listen(ctx context.Context) {
 		panic(videoTrackErr)
 	}
 
-	s.control.AddChannel(1234)
+	s.control.StartStream(1234)
 	s.control.AddTrack(1234, videoTrack)
 
 	go func() {
