@@ -10,7 +10,7 @@
 </head>
 
 <body>
-    <h1>StreamID={{.StreamID}}</h1>
+    <h1>StreamID={{.ChannelID}}</h1>
 
 
     <video id="video1" autoplay controls muted allowfullscreen></video>
@@ -21,7 +21,7 @@
 
 
     <script>
-        let endpoint = "http://localhost:8091/whep/endpoint";
+        let endpoint = "http://localhost:8091/whep/endpoint/{{.ChannelID}}";
         let videoEl = document.getElementById("video1");
 
         const log = msg => {
@@ -69,7 +69,7 @@
                 // }
             }
 
-            const resp = await fetch("http://localhost:8091/whep/endpoint", {
+            const resp = await fetch(endpoint, {
                 method: 'POST',
                 cache: 'no-cache',
                 headers: {
