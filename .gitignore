@@ -31,6 +31,9 @@ go.work
 .idea/
 waveguide.iml
 
+# Configuration
+config.toml
+
 # Test video files
 test/*.h264
 test/*.ogg
