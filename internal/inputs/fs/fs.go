@@ -2,7 +2,6 @@ package fs
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"os"
 	"time"
@@ -61,7 +60,7 @@ func (s *FSSource) Listen(ctx context.Context) {
 	}
 
 	s.control.StartStream(1234)
-	s.control.AddTrack(1234, videoTrack)
+	s.control.AddTrack(1234, videoTrack, webrtc.MimeTypeH264)
 
 	go func() {
 		// Open a H264 file and start reading using our IVFReader
@@ -87,7 +86,7 @@ func (s *FSSource) Listen(ctx context.Context) {
 		for ; true; <-ticker.C {
 			nal, h264Err := h264.NextNAL()
 			if h264Err == io.EOF {
-				fmt.Printf("All video frames parsed and sent")
+				s.log.Info("All video frames parsed and sent")
 				os.Exit(0)
 			}
 			if h264Err != nil {

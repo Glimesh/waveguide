@@ -134,5 +134,6 @@ func (client *Client) routerEndpoint(path string) string {
 }
 
 func (client *Client) channelEndpoint(channelID control.ChannelID) string {
-	return fmt.Sprintf("https://%s/%d", client.hostname, channelID)
+	// client.hostname
+	return fmt.Sprintf("https://%s/whep/endpoint/%d", client.hostname, channelID)
 }

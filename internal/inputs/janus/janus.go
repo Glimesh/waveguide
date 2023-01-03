@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"math/rand"
 	"net/http"
 	"time"
@@ -147,8 +147,8 @@ func (s *JanusSource) Listen(ctx context.Context) {
 
 			var offerResponse janusFtlOfferResponse
 			if err := json.NewDecoder(longPoll.Body).Decode(&offerResponse); err != nil {
-				body, _ := ioutil.ReadAll(longPoll.Body)
-				fmt.Printf("Unexpected Long-Poll: %s\n", body)
+				body, _ := io.ReadAll(longPoll.Body)
+				s.log.Warningf("Unexpected Long-Poll: %s\n", body)
 			} else {
 				if offerResponse.Jsep.Sdp != "" {
 					s.log.Infof("Got offer: %s", offerResponse.Jsep.Sdp)
@@ -165,7 +165,10 @@ func (s *JanusSource) Listen(ctx context.Context) {
 
 func (s *JanusSource) negotiate(sdpString string, pluginUrl string) {
 	var err error
-	s.control.StartStream(control.ChannelID(s.config.ChannelId))
+	_, err = s.control.StartStream(control.ChannelID(s.config.ChannelId))
+	if err != nil {
+		panic(err)
+	}
 
 	videoTrack, videoTrackErr := webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264}, "video", "pion")
 	if videoTrackErr != nil {
@@ -177,8 +180,8 @@ func (s *JanusSource) negotiate(sdpString string, pluginUrl string) {
 		panic(videoTrackErr)
 	}
 
-	s.control.AddTrack(control.ChannelID(s.config.ChannelId), videoTrack)
-	s.control.AddTrack(control.ChannelID(s.config.ChannelId), audioTrack)
+	s.control.AddTrack(control.ChannelID(s.config.ChannelId), videoTrack, webrtc.MimeTypeH264)
+	s.control.AddTrack(control.ChannelID(s.config.ChannelId), audioTrack, webrtc.MimeTypeOpus)
 
 	offer := webrtc.SessionDescription{
 		Type: webrtc.SDPTypeOffer,
@@ -209,14 +212,14 @@ func (s *JanusSource) negotiate(sdpString string, pluginUrl string) {
 	}
 
 	peerConnection.OnICEConnectionStateChange(func(connectionState webrtc.ICEConnectionState) {
-		fmt.Printf("Connection State has changed %s \n", connectionState.String())
+		s.log.Infof("Connection State has changed %s", connectionState.String())
 	})
 
 	peerConnection.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
 		codec := track.Codec()
 		s.log.Infof("Got Track: %s", codec.MimeType)
 		if codec.MimeType == "audio/opus" {
-			fmt.Println("Got Opus track, sending to audio track")
+			s.log.Info("Got Opus track, sending to audio track")
 			for {
 				p, _, err := track.ReadRTP()
 				if err != nil {
@@ -225,7 +228,7 @@ func (s *JanusSource) negotiate(sdpString string, pluginUrl string) {
 				audioTrack.WriteRTP(p)
 			}
 		} else if codec.MimeType == "video/H264" {
-			fmt.Println("Got H264 track, sending to video track")
+			s.log.Info("Got H264 track, sending to video track")
 			for {
 				p, _, err := track.ReadRTP()
 				if err != nil {

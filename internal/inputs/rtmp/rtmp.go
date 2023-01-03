@@ -32,10 +32,10 @@ import (
 
 const (
 	FTL_MTU      uint16 = 1392
-	FTL_VIDEO_PT        = 96
-	FTL_AUDIO_PT        = 97
+	FTL_VIDEO_PT uint8  = 96
+	FTL_AUDIO_PT uint8  = 97
 
-	BANDWIDTH_LIMIT = 8000 * 1000
+	BANDWIDTH_LIMIT int = 8000 * 1000
 )
 
 type RTMPSource struct {
@@ -130,9 +130,6 @@ type connHandler struct {
 	keyframes       int
 	lastKeyFrames   int
 	lastInterFrames int
-
-	sps []byte
-	pps []byte
 
 	stopMetadataCollection chan bool
 
@@ -237,9 +234,6 @@ func (h *connHandler) OnPublish(ctx *gortmp.StreamContext, timestamp uint32, cmd
 		return err
 	}
 
-	h.control.AddTrack(h.channelID, h.videoTrack)
-	h.control.AddTrack(h.channelID, h.audioTrack)
-
 	go h.setupMetadataCollector()
 
 	return nil
@@ -287,6 +281,8 @@ func (h *connHandler) initAudio(clockRate uint32) (err error) {
 		return err
 	}
 	h.audioDecoder = fdkaac.NewAacDecoder()
+
+	h.control.AddTrack(h.channelID, h.audioTrack, webrtc.MimeTypeOpus)
 
 	return nil
 }
@@ -367,6 +363,8 @@ func (h *connHandler) initVideo(clockRate uint32) (err error) {
 		h.debugVideoFile, err = os.Create(fmt.Sprintf("debug-video-%d.h264", h.streamID))
 		return err
 	}
+
+	h.control.AddTrack(h.channelID, h.videoTrack, webrtc.MimeTypeH264)
 
 	return nil
 }
@@ -472,7 +470,7 @@ func (h *connHandler) sendThumbnail() {
 			return
 		}
 
-		err = h.control.SendThumbnail()
+		err = h.control.SendThumbnail(h.channelID)
 		if err != nil {
 			h.log.Error(err)
 		}
@@ -500,6 +498,7 @@ func (h *connHandler) sendMetadata() {
 	// VideoHeight:       h.videoHeight,
 	// VideoWidth:        h.videoWidth,
 	// }
+
 	err := h.control.SendMetadata()
 	if err != nil {
 		h.log.Error(err)

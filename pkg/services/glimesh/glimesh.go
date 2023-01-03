@@ -10,6 +10,7 @@ import (
 
 	"github.com/Glimesh/waveguide/pkg/control"
 	"github.com/hasura/go-graphql-client"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/oauth2/clientcredentials"
 )
 
@@ -20,12 +21,14 @@ type Service struct {
 	client     *graphql.Client
 	httpClient *http.Client
 	config     *Config
+
+	log logrus.FieldLogger
 }
 
 type Config struct {
-	Address      string
-	ClientID     string
-	ClientSecret string
+	Endpoint     string
+	ClientID     string `mapstructure:"client_id"`
+	ClientSecret string `mapstructure:"client_secret"`
 }
 
 func New(config Config) *Service {
@@ -36,6 +39,10 @@ func New(config Config) *Service {
 	}
 }
 
+func (s *Service) SetLogger(log logrus.FieldLogger) {
+	s.log = log
+}
+
 func (s *Service) Name() string {
 	return "Glimesh"
 }
@@ -44,11 +51,11 @@ func (s *Service) Connect() error {
 	config := clientcredentials.Config{
 		ClientID:     s.config.ClientID,
 		ClientSecret: s.config.ClientSecret,
-		TokenURL:     fmt.Sprintf("%s%s", s.config.Address, s.tokenUrl),
+		TokenURL:     fmt.Sprintf("%s%s", s.config.Endpoint, s.tokenUrl),
 		Scopes:       []string{"streamkey"},
 	}
 	s.httpClient = config.Client(context.Background())
-	s.client = graphql.NewClient(fmt.Sprintf("%s%s", s.config.Address, s.apiUrl), s.httpClient)
+	s.client = graphql.NewClient(fmt.Sprintf("%s%s", s.config.Endpoint, s.apiUrl), s.httpClient)
 
 	return nil
 }
@@ -60,7 +67,7 @@ func (s *Service) GetHmacKey(channelID control.ChannelID) ([]byte, error) {
 		} `graphql:"channel(id: $id)"`
 	}
 	err := s.client.Query(context.Background(), &hmacQuery, map[string]interface{}{
-		"id": graphql.ID(channelID),
+		"id": graphql.ID(fmt.Sprint(channelID)),
 	})
 	if err != nil {
 		return []byte{}, err
@@ -74,8 +81,9 @@ func (s *Service) StartStream(channelID control.ChannelID) (control.StreamID, er
 			Id graphql.String
 		} `graphql:"startStream(channelId: $id)"`
 	}
+	fmt.Println(fmt.Sprint(channelID))
 	err := s.client.Mutate(context.Background(), &startStreamMutation, map[string]interface{}{
-		"id": graphql.ID(channelID),
+		"id": graphql.ID(fmt.Sprint(channelID)),
 	})
 	if err != nil {
 		return 0, err
@@ -95,7 +103,7 @@ func (s *Service) EndStream(streamID control.StreamID) error {
 		} `graphql:"endStream(streamId: $id)"`
 	}
 	return s.client.Mutate(context.Background(), &endStreamMutation, map[string]interface{}{
-		"id": graphql.ID(streamID),
+		"id": graphql.ID(fmt.Sprint(streamID)),
 	})
 }
 
@@ -108,7 +116,7 @@ func (s *Service) UpdateStreamMetadata(streamID control.StreamID, metadata contr
 		} `graphql:"logStreamMetadata(streamId: $id, metadata: $metadata)"`
 	}
 	return s.client.Mutate(context.Background(), &logStreamMetadata, map[string]interface{}{
-		"id": graphql.ID(streamID),
+		"id": graphql.ID(fmt.Sprint(streamID)),
 		"metadata": StreamMetadataInput{
 			AudioCodec:        metadata.AudioCodec,
 			IngestServer:      metadata.IngestServer,
@@ -136,7 +144,7 @@ func (s *Service) SendJpegPreviewImage(streamID control.StreamID, img []byte) er
 		}
 	}`
 
-	return uploadThumbnail(s.httpClient, fmt.Sprintf("%s%s", s.config.Address, s.apiUrl), fmt.Sprintf(query, streamID), img)
+	return uploadThumbnail(s.httpClient, fmt.Sprintf("%s%s", s.config.Endpoint, s.apiUrl), fmt.Sprintf(query, streamID), img)
 }
 
 func uploadThumbnail(client *http.Client, url string, query string, image []byte) error {

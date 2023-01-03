@@ -1,9 +1,13 @@
 package control
 
 import (
+	"bytes"
 	"errors"
+	"image"
+	"image/jpeg"
 	"time"
 
+	"github.com/Glimesh/waveguide/pkg/h264"
 	"github.com/pion/webrtc/v3"
 )
 
@@ -35,24 +39,31 @@ func (mgr *Control) SetOrchestrator(orch Orchestrator) {
 	mgr.orchestrator = orch
 }
 
-func (mgr *Control) AddTrack(channelID ChannelID, track webrtc.TrackLocal) error {
+func (mgr *Control) AddTrack(channelID ChannelID, track webrtc.TrackLocal, codec string) error {
 	stream, err := mgr.getStream(channelID)
 	if err != nil {
 		return err
 	}
 
+	// TODO: Needs better support for tracks with different codecs
 	if track.Kind() == webrtc.RTPCodecTypeAudio {
 		stream.hasSomeAudio = true
+		stream.metadata.AudioCodec = codec
 	} else if track.Kind() == webrtc.RTPCodecTypeVideo {
 		stream.hasSomeVideo = true
+		stream.metadata.VideoCodec = codec
 	}
 
-	stream.tracks = append(stream.tracks, track)
+	stream.tracks = append(stream.tracks, StreamTrack{
+		Type:  track.Kind(),
+		Track: track,
+		Codec: codec,
+	})
 
 	return nil
 }
 
-func (mgr *Control) GetTracks(channelID ChannelID) ([]webrtc.TrackLocal, error) {
+func (mgr *Control) GetTracks(channelID ChannelID) ([]StreamTrack, error) {
 	stream, err := mgr.getStream(channelID)
 	if err != nil {
 		return nil, err
@@ -138,7 +149,69 @@ func (mgr *Control) StopStream(channelID ChannelID) (err error) {
 	return mgr.removeStream(channelID)
 }
 
-func (mgr *Control) SendThumbnail() error {
+func (mgr *Control) SendThumbnail(channelID ChannelID) (err error) {
+	stream, err := mgr.getStream(channelID)
+	if err != nil {
+		return err
+	}
+
+	primaryVideoTrack, err := getPrimaryVideoTrack(stream.tracks)
+	if err != nil {
+		return err
+	}
+
+	var img image.Image
+	switch primaryVideoTrack.Codec {
+	case webrtc.MimeTypeH264:
+		img, err = decodeH264Snapshot([]byte{1, 2, 4})
+	}
+	if err != nil {
+		return err
+	}
+
+	buff := new(bytes.Buffer)
+	err = jpeg.Encode(buff, img, &jpeg.Options{
+		Quality: 75,
+	})
+	if err != nil {
+		return err
+	}
+
+	mgr.service.SendJpegPreviewImage(stream.StreamID, buff.Bytes())
+	if err != nil {
+		return err
+	}
+
+	// Also update our metadata
+	stream.metadata.VideoWidth = img.Bounds().Dx()
+	stream.metadata.VideoHeight = img.Bounds().Dy()
+
+	return nil
+}
+
+func (mgr *Control) ReportMetadata(channelID ChannelID, value interface{}) error {
+	stream, err := mgr.getStream(channelID)
+	if err != nil {
+		return err
+	}
+
+	switch value.(type) {
+	case LostPacketsMetadata:
+		stream.metadata.LostPackets += value.(int)
+	case NackPacketsMetadata:
+		stream.metadata.NackPackets += value.(int)
+	case RecvPacketsMetadata:
+		stream.metadata.RecvPackets += value.(int)
+	case SourceBitrateMetadata:
+		stream.metadata.SourceBitrate = value.(int)
+	case SourcePingMetadata:
+		stream.metadata.SourcePing = value.(int)
+	case RecvVideoPacketsMetadata:
+		stream.metadata.RecvVideoPackets += value.(int)
+	case RecvAudioPacketsMetadata:
+		stream.metadata.RecvAudioPackets += value.(int)
+	}
+
 	return nil
 }
 
@@ -152,6 +225,14 @@ func (mgr *Control) newStream(channelID ChannelID) (*Stream, error) {
 		mediaStarted:  false,
 		ChannelID:     channelID,
 		stopHeartbeat: make(chan bool, 1),
+		metadata: StreamMetadata{
+			LostPackets:       0,
+			NackPackets:       0,
+			RecvPackets:       0,
+			RecvAudioPackets:  0,
+			RecvVideoPackets:  0,
+			StreamTimeSeconds: 0,
+		},
 	}
 
 	if _, exists := mgr.streams[channelID]; exists {
@@ -174,6 +255,31 @@ func (mgr *Control) getStream(id ChannelID) (*Stream, error) {
 		return &Stream{}, errors.New("GetStream stream does not exist in state")
 	}
 	return mgr.streams[id], nil
+}
+
+func getPrimaryVideoTrack(tracks []StreamTrack) (StreamTrack, error) {
+	for _, track := range tracks {
+		if track.Type == webrtc.RTPCodecTypeVideo {
+			return track, nil
+		}
+	}
+
+	return StreamTrack{}, errors.New("no video tracks")
+}
+
+func decodeH264Snapshot(lastFullFrame []byte) (image.Image, error) {
+	var img image.Image
+	h264dec, err := h264.NewH264Decoder()
+	if err != nil {
+		return img, err
+	}
+	defer h264dec.Close()
+	img, err = h264dec.Decode(lastFullFrame)
+	if err != nil {
+		return img, err
+	}
+
+	return img, nil
 }
 
 // func (mgr *Control) WatchChannel(channelID ChannelID, clientConnection *webrtc.PeerConnection) {

@@ -91,8 +91,8 @@ func (c *connHandler) OnTracks(video *webrtc.TrackLocalStaticRTP, audio *webrtc.
 
 	c.control.StartStream(c.channelID)
 
-	c.control.AddTrack(c.channelID, video)
-	c.control.AddTrack(c.channelID, audio)
+	c.control.AddTrack(c.channelID, video, webrtc.MimeTypeH264)
+	c.control.AddTrack(c.channelID, audio, webrtc.MimeTypeOpus)
 
 	return nil
 }

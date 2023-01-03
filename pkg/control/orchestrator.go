@@ -1,5 +1,7 @@
 package control
 
+import "github.com/sirupsen/logrus"
+
 type Orchestrator interface {
 	// Name of the service, eg: Glimesh
 	Name() string
@@ -7,6 +9,8 @@ type Orchestrator interface {
 	Connect() error
 	// Close the service connection
 	Close() error
+
+	SetLogger(logrus.FieldLogger)
 
 	// TODO: Consider removing as public method
 	// SendMessage(messageType uint8, payload []byte) error

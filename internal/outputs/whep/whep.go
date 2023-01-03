@@ -2,9 +2,10 @@ package whep
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"html/template"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"path"
 	"strconv"
@@ -20,7 +21,10 @@ const PC_TIMEOUT = time.Minute * 5
 
 type WHEPConfig struct {
 	// Listen address of the webserver
-	Address string
+	Address   string
+	Https     bool
+	HttpsCert string `mapstructure:"https_cert"`
+	HttpsKey  string `mapstructure:"https_key"`
 }
 
 type WHEPServer struct {
@@ -49,12 +53,16 @@ func (s *WHEPServer) SetLogger(log logrus.FieldLogger) {
 func (s *WHEPServer) Listen(ctx context.Context) {
 	s.log.Infof("Starting WHEP Server on %s", s.config.Address)
 
+	mux := http.NewServeMux()
+
 	// Todo: Find better way of fetching this path
 	streamTemplate := template.Must(template.ParseFiles("internal/outputs/whep/public/stream.html"))
 
 	// Player (Nothing) => Endpoint (Offer) => Player (Answer)
-	http.HandleFunc("/whep/endpoint", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/whep/endpoint/", func(w http.ResponseWriter, r *http.Request) {
 		strChannelID := path.Base(r.URL.Path)
+
+		w.Header().Add("Access-Control-Allow-Origin", "*")
 
 		channelID, err := strconv.Atoi(strChannelID)
 		if err != nil {
@@ -66,14 +74,6 @@ func (s *WHEPServer) Listen(ctx context.Context) {
 		s.log.Infof("WHEP Negotiation: peer=%s status=started offer=none answer=none", peerID)
 
 		ttl := time.Now().Add(PC_TIMEOUT)
-
-		w.Header().Add("Content-Type", "application/sdp")
-		// Since Load Balancing happens only at the RTRouter, this is just responsible for
-		// sending the user to the resource on this server
-		w.Header().Add("Location", "http://localhost:8091/whep/resource/"+peerID)
-		w.Header().Add("Expire", ttl.Format(http.TimeFormat))
-
-		w.WriteHeader(http.StatusCreated)
 
 		peerConnection, err := webrtc.NewPeerConnection(webrtc.Configuration{
 			ICEServers: []webrtc.ICEServer{
@@ -112,7 +112,7 @@ func (s *WHEPServer) Listen(ctx context.Context) {
 			return
 		}
 		for _, track := range tracks {
-			peerConnection.AddTrack(track)
+			peerConnection.AddTrack(track.Track)
 		}
 
 		s.addPeerConnection(peerID, peerConnection)
@@ -134,8 +134,15 @@ func (s *WHEPServer) Listen(ctx context.Context) {
 		<-gatherComplete
 
 		localDescription := peerConnection.LocalDescription()
-
 		s.log.Infof("WHEP Negotiation: peer=%s status=negotiating offer=created answer=none", peerID)
+
+		w.Header().Add("Access-Control-Expose-Headers", "location, expire")
+		w.Header().Add("Content-Type", "application/sdp")
+		// Since Load Balancing happens only at the RTRouter, this is just responsible for
+		// sending the user to the resource on this server
+		w.Header().Add("Location", s.resourceUrl(peerID))
+		w.Header().Add("Expire", ttl.Format(http.TimeFormat))
+		w.WriteHeader(http.StatusCreated)
 
 		fmt.Fprint(w, string(localDescription.SDP))
 	})
@@ -143,10 +150,19 @@ func (s *WHEPServer) Listen(ctx context.Context) {
 	// Player (Nothing) => Endpoint (Offer) => Player (Answer)
 	// This function actually finishes the SDP handshake
 	// After this the WebRTC connection should be established
-	http.HandleFunc("/whep/resource/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/whep/resource/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Add("Access-Control-Allow-Origin", "*")
+		if r.Method == http.MethodOptions {
+			w.Header().Add("Access-Control-Allow-Methods", "PATCH")
+			w.Header().Add("Allow", "PATCH")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		unsafePcID := path.Base(r.URL.Path)
-		body, err := ioutil.ReadAll(r.Body)
+
+		body, err := io.ReadAll(r.Body)
 		if unsafePcID == "" || err != nil {
+			s.log.Info("Got in here", unsafePcID, body)
 			errWrongParams(w, r)
 			return
 		}
@@ -174,7 +190,7 @@ func (s *WHEPServer) Listen(ctx context.Context) {
 		fmt.Fprintf(w, "")
 	})
 
-	http.HandleFunc("/stream/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/stream/", func(w http.ResponseWriter, r *http.Request) {
 		channelID := path.Base(r.URL.Path)
 		data := struct {
 			ChannelID string
@@ -183,7 +199,39 @@ func (s *WHEPServer) Listen(ctx context.Context) {
 		streamTemplate.Execute(w, data)
 	})
 
-	s.log.Fatal(http.ListenAndServe(s.config.Address, nil))
+	if s.config.Https {
+		s.log.Fatal(httpsServer(s.config.Address, s.config.HttpsCert, s.config.HttpsKey, s.log, mux))
+	} else {
+		s.log.Fatal(httpServer(s.config.Address, s.log, mux))
+	}
+}
+
+func httpServer(address string, log logrus.FieldLogger, mux *http.ServeMux) error {
+	srv := &http.Server{
+		Addr:    address,
+		Handler: logRequest(log, mux),
+	}
+	return srv.ListenAndServe()
+}
+func httpsServer(address, cert, key string, log logrus.FieldLogger, mux *http.ServeMux) error {
+	cfg := &tls.Config{
+		MinVersion:               tls.VersionTLS12,
+		CurvePreferences:         []tls.CurveID{tls.CurveP521, tls.CurveP384, tls.CurveP256},
+		PreferServerCipherSuites: true,
+		CipherSuites: []uint16{
+			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
+			tls.TLS_RSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_RSA_WITH_AES_256_CBC_SHA,
+		},
+	}
+	srv := &http.Server{
+		Addr:         address,
+		Handler:      logRequest(log, mux),
+		TLSConfig:    cfg,
+		TLSNextProto: make(map[string]func(*http.Server, *tls.Conn, http.Handler), 0),
+	}
+	return srv.ListenAndServeTLS(cert, key)
 }
 
 func (s *WHEPServer) addPeerConnection(uuid string, pc *webrtc.PeerConnection) {
@@ -196,8 +244,8 @@ func (s *WHEPServer) startPeerConnectionTimeout(uuid string) {
 	go func() {
 		time.Sleep(PC_TIMEOUT)
 
-		pc := s.peerConnections[uuid]
-		if pc.ConnectionState() != webrtc.PeerConnectionStateConnected {
+		pc, ok := s.peerConnections[uuid]
+		if ok && pc.ConnectionState() != webrtc.PeerConnectionStateConnected {
 			s.log.Infof("Peer %s took too long to connect, rejecting peer.", uuid)
 			s.cleanupPeerConnection(uuid)
 		}
@@ -209,6 +257,24 @@ func (s *WHEPServer) cleanupPeerConnection(uuid string) {
 	}
 
 	delete(s.peerConnections, uuid)
+}
+
+func (s *WHEPServer) resourceUrl(uuid string) string {
+	var protocol string
+	if s.config.Https {
+		protocol = "https"
+	} else {
+		protocol = "http"
+	}
+
+	return fmt.Sprintf("%s://%s/whep/resource/%s", protocol, s.config.Address, uuid)
+}
+
+func logRequest(log logrus.FieldLogger, handler http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("%s %s %s %s", r.URL.Scheme, r.RemoteAddr, r.Method, r.URL)
+		handler.ServeHTTP(w, r)
+	})
 }
 
 func errCustom(w http.ResponseWriter, r *http.Request, message string) {

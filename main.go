@@ -16,6 +16,7 @@ import (
 	"github.com/Glimesh/waveguide/pkg/orchestrators/dummy_orchestrator"
 	"github.com/Glimesh/waveguide/pkg/orchestrators/rt_orchestrator"
 	"github.com/Glimesh/waveguide/pkg/services/dummy_service"
+	"github.com/Glimesh/waveguide/pkg/services/glimesh"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 )
@@ -43,8 +44,13 @@ func main() {
 	switch viper.GetString("control.service") {
 	case "dummy":
 		service = dummy_service.New(dummy_service.Config{})
+	case "glimesh":
+		var glimeshConfig glimesh.Config
+		unmarshalConfig("service.glimesh", &glimeshConfig)
+		service = glimesh.New(glimeshConfig)
 	}
 	service.SetLogger(log.WithField("service", service.Name()))
+	service.Connect()
 
 	var orchestrator control.Orchestrator
 	switch viper.GetString("control.orchestrator") {
@@ -55,7 +61,8 @@ func main() {
 		unmarshalConfig("orchestrator.rtrouter", &rtConfig)
 		orchestrator = rt_orchestrator.New(rtConfig, hostname)
 	}
-	service.SetLogger(log.WithField("orchestrator", service.Name()))
+	orchestrator.SetLogger(log.WithField("orchestrator", service.Name()))
+	orchestrator.Connect()
 
 	ctrl := control.New()
 	ctrl.SetService(service)
