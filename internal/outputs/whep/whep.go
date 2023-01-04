@@ -196,8 +196,9 @@ func (s *WHEPServer) Listen(ctx context.Context) {
 	mux.HandleFunc("/stream/", func(w http.ResponseWriter, r *http.Request) {
 		channelID := path.Base(r.URL.Path)
 		data := struct {
-			ChannelID string
-		}{ChannelID: channelID}
+			ChannelID   string
+			EndpointUrl string
+		}{ChannelID: channelID, EndpointUrl: s.endpointUrl(channelID)}
 
 		streamTemplate.Execute(w, data)
 	})
@@ -267,7 +268,7 @@ func (s *WHEPServer) cleanupPeerConnection(uuid string) {
 	delete(s.peerConnections, uuid)
 }
 
-func (s *WHEPServer) resourceUrl(uuid string) string {
+func (s *WHEPServer) serverUrl() string {
 	var protocol string
 	var host string
 	if s.config.Https {
@@ -278,7 +279,13 @@ func (s *WHEPServer) resourceUrl(uuid string) string {
 		host = s.config.Address
 	}
 
-	return fmt.Sprintf("%s://%s/whep/resource/%s", protocol, host, uuid)
+	return fmt.Sprintf("%s://%s", protocol, host)
+}
+func (s *WHEPServer) endpointUrl(channelID string) string {
+	return fmt.Sprintf("%s/whep/endpoint/%s", s.serverUrl(), channelID)
+}
+func (s *WHEPServer) resourceUrl(uuid string) string {
+	return fmt.Sprintf("%s/whep/resource/%s", s.serverUrl(), uuid)
 }
 
 func logRequest(log logrus.FieldLogger, handler http.Handler) http.Handler {

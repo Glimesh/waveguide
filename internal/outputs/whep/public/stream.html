@@ -21,7 +21,7 @@
 
 
     <script>
-        let endpoint = "http://localhost:8091/whep/endpoint/{{.ChannelID}}";
+        let endpoint = "{{.EndpointUrl}}";
         let videoEl = document.getElementById("video1");
 
         const log = msg => {
