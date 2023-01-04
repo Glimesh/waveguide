@@ -197,8 +197,8 @@ func (s *WHEPServer) Listen(ctx context.Context) {
 		channelID := path.Base(r.URL.Path)
 		data := struct {
 			ChannelID   string
-			EndpointUrl string
-		}{ChannelID: channelID, EndpointUrl: s.endpointUrl(channelID)}
+			EndpointUrl template.HTML
+		}{ChannelID: channelID, EndpointUrl: template.HTML(s.endpointUrl(channelID))}
 
 		streamTemplate.Execute(w, data)
 	})
