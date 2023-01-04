@@ -15,16 +15,19 @@ import (
 	"github.com/google/uuid"
 	"github.com/pion/webrtc/v3"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/crypto/acme/autocert"
 )
 
 const PC_TIMEOUT = time.Minute * 5
 
 type WHEPConfig struct {
 	// Listen address of the webserver
-	Address   string
-	Https     bool
-	HttpsCert string `mapstructure:"https_cert"`
-	HttpsKey  string `mapstructure:"https_key"`
+	Address       string
+	Server        string `mapstructure:"server"`
+	Https         bool
+	HttpsHostname string `mapstructure:"https_hostname"`
+	HttpsCert     string `mapstructure:"https_cert"`
+	HttpsKey      string `mapstructure:"https_key"`
 }
 
 type WHEPServer struct {
@@ -199,10 +202,15 @@ func (s *WHEPServer) Listen(ctx context.Context) {
 		streamTemplate.Execute(w, data)
 	})
 
-	if s.config.Https {
+	switch s.config.Server {
+	case "acme":
+		s.log.Fatal(http.Serve(autocert.NewListener(s.config.HttpsHostname), logRequest(s.log, mux)))
+	case "https":
 		s.log.Fatal(httpsServer(s.config.Address, s.config.HttpsCert, s.config.HttpsKey, s.log, mux))
-	} else {
+	case "http":
 		s.log.Fatal(httpServer(s.config.Address, s.log, mux))
+	default:
+		s.log.Fatalf("unknown WHEP server option %s", s.config.Server)
 	}
 }
 
@@ -261,13 +269,16 @@ func (s *WHEPServer) cleanupPeerConnection(uuid string) {
 
 func (s *WHEPServer) resourceUrl(uuid string) string {
 	var protocol string
+	var host string
 	if s.config.Https {
 		protocol = "https"
+		host = s.config.HttpsHostname
 	} else {
 		protocol = "http"
+		host = s.config.Address
 	}
 
-	return fmt.Sprintf("%s://%s/whep/resource/%s", protocol, s.config.Address, uuid)
+	return fmt.Sprintf("%s://%s/whep/resource/%s", protocol, host, uuid)
 }
 
 func logRequest(log logrus.FieldLogger, handler http.Handler) http.Handler {

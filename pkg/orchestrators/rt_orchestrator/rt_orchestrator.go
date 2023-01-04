@@ -43,14 +43,12 @@ func (client *Client) Name() string {
 
 // Since RTRouter is HTTP, no permanent connection is necessary.
 func (client *Client) Connect() error {
-	client.log.Info("Connecting to Dummy Orchestrator")
 	client.connected = true
 	return nil
 }
 
 // Likely this needs to tell the orchestrator all URLs for this endpoint are no longer valid
 func (client *Client) Close() error {
-	client.log.Info("Closing connection to Dummy Orchestrator")
 	if !client.connected {
 		// Already closed
 		return nil
