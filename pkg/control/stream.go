@@ -55,7 +55,6 @@ type ClientVendorVersionMetadata string
 
 type StreamMetadata struct {
 	AudioCodec        string
-	RecvAudioPackets  int
 	IngestServer      string
 	IngestViewers     int
 	LostPackets       int
@@ -69,7 +68,6 @@ type StreamMetadata struct {
 	VideoCodec        string
 	VideoHeight       int
 	VideoWidth        int
-	RecvVideoPackets  int
 }
 
 // const (
