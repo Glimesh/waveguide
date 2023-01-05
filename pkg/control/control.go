@@ -3,6 +3,7 @@ package control
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"image"
 	"image/jpeg"
 	"time"
@@ -114,21 +115,7 @@ func (mgr *Control) StartStream(channelID ChannelID) (*Stream, error) {
 		return &Stream{}, err
 	}
 
-	ticker := time.NewTicker(30 * time.Second)
-	go func() {
-		for {
-			select {
-			case <-ticker.C:
-				// Send orchestrator heartbeat
-				mgr.orchestrator.Heartbeat(channelID)
-			case <-stream.stopHeartbeat:
-				ticker.Stop()
-				return
-			}
-		}
-	}()
-
-	go mgr.setupMetadataCollection(channelID)
+	go mgr.setupHeartbeat(channelID)
 
 	return stream, err
 }
@@ -188,14 +175,31 @@ func (mgr *Control) ReportMetadata(channelID ChannelID, value interface{}) error
 	return nil
 }
 
-func (mgr *Control) setupMetadataCollection(channelID ChannelID) {
-	ticker := time.NewTicker(5 * time.Second)
+func (mgr *Control) setupHeartbeat(channelID ChannelID) {
+	ticker := time.NewTicker(15 * time.Second)
 	go func() {
 		for {
 			select {
 			case <-ticker.C:
-				mgr.sendThumbnail(channelID)
-				mgr.sendMetadata(channelID)
+				var err error
+
+				fmt.Println("Sending thumbnail")
+				err = mgr.sendThumbnail(channelID)
+				if err != nil {
+					fmt.Println(err)
+				}
+
+				fmt.Println("Sending metadata")
+				err = mgr.sendMetadata(channelID)
+				if err != nil {
+					fmt.Println(err)
+				}
+
+				fmt.Println("Sending heartbeat")
+				err = mgr.orchestrator.Heartbeat(channelID)
+				if err != nil {
+					fmt.Println(err)
+				}
 
 			case <-mgr.metadataCollectors[channelID]:
 				ticker.Stop()
