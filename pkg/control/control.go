@@ -18,16 +18,19 @@ type Pipe struct {
 }
 
 type Control struct {
-	service      Service
-	orchestrator Orchestrator
-	streams      map[ChannelID]*Stream
+	hostname           string
+	service            Service
+	orchestrator       Orchestrator
+	streams            map[ChannelID]*Stream
+	metadataCollectors map[ChannelID]chan bool
 }
 
-func New() *Control {
+func New(hostname string) *Control {
 	return &Control{
 		// orchestrator: orchestrator,
 		// service:         service,
-		streams: make(map[ChannelID]*Stream),
+		streams:            make(map[ChannelID]*Stream),
+		metadataCollectors: make(map[ChannelID]chan bool),
 	}
 }
 
@@ -125,6 +128,8 @@ func (mgr *Control) StartStream(channelID ChannelID) (*Stream, error) {
 		}
 	}()
 
+	go mgr.setupMetadataCollection(channelID)
+
 	return stream, err
 }
 
@@ -135,6 +140,7 @@ func (mgr *Control) StopStream(channelID ChannelID) (err error) {
 	}
 
 	stream.stopHeartbeat <- true
+	mgr.metadataCollectors[channelID] <- true
 
 	// Tell the orchestrator the stream has ended
 	if err := mgr.orchestrator.StopStream(stream.ChannelID, stream.StreamID); err != nil {
@@ -149,21 +155,96 @@ func (mgr *Control) StopStream(channelID ChannelID) (err error) {
 	return mgr.removeStream(channelID)
 }
 
-func (mgr *Control) SendThumbnail(channelID ChannelID) (err error) {
+func (mgr *Control) ReportMetadata(channelID ChannelID, value interface{}) error {
+	_, err := mgr.getStream(channelID)
+	if err != nil {
+		return err
+	}
+
+	// fmt.Printf("%v", value.(type))
+	// switch value.(type) {
+	// case AudioPacketsMetadata:
+	// 	stream.audioPackets += value.(int)
+	// 	stream.lastAudioPackets = value.(int)
+	// case VideoPacketsMetadata:
+	// 	stream.videoPackets += value.(int)
+	// 	stream.lastVideoPackets = value.(int)
+	// case ClientVendorNameMetadata:
+	// 	stream.clientVendorName = fmt.Sprint(value)
+	// case ClientVendorVersionMetadata:
+	// 	stream.clientVendorVersion = fmt.Sprint(value)
+	// case AudioCodecMetadata:
+	// 	stream.audioCodec = fmt.Sprint(value)
+	// case VideoCodecMetadata:
+	// 	stream.videoCodec = fmt.Sprint(value)
+	// case VideoHeightMetadata:
+	// 	stream.videoHeight = value.(int)
+	// case VideoWidthMetadata:
+	// 	stream.videoWidth = value.(int)
+	// case VideoFrameMetadata:
+	// 	stream.lastFullFrame = []byte(value)
+	// }
+
+	return nil
+}
+
+func (mgr *Control) setupMetadataCollection(channelID ChannelID) {
+	ticker := time.NewTicker(5 * time.Second)
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				mgr.sendThumbnail(channelID)
+				mgr.sendMetadata(channelID)
+
+			case <-mgr.metadataCollectors[channelID]:
+				ticker.Stop()
+				return
+			}
+		}
+	}()
+}
+
+func (mgr *Control) sendMetadata(channelID ChannelID) error {
 	stream, err := mgr.getStream(channelID)
 	if err != nil {
 		return err
 	}
 
-	primaryVideoTrack, err := getPrimaryVideoTrack(stream.tracks)
+	stream.lastTime = time.Now().Unix()
+
+	return mgr.service.UpdateStreamMetadata(stream.StreamID, StreamMetadata{
+		AudioCodec:        stream.audioCodec,
+		IngestServer:      mgr.hostname,
+		IngestViewers:     0,
+		LostPackets:       0, // Don't exist
+		NackPackets:       0, // Don't exist
+		RecvPackets:       stream.videoPackets + stream.audioPackets,
+		SourceBitrate:     0, // Likely just need to calculate the bytes between two 5s snapshots?
+		SourcePing:        0, // Not accessible unless we ping them manually
+		StreamTimeSeconds: int(stream.lastTime - stream.startTime),
+		VendorName:        stream.clientVendorName,
+		VendorVersion:     stream.clientVendorVersion,
+		VideoCodec:        stream.videoCodec,
+		VideoHeight:       stream.videoHeight,
+		VideoWidth:        stream.videoWidth,
+	})
+}
+
+func (mgr *Control) sendThumbnail(channelID ChannelID) (err error) {
+	stream, err := mgr.getStream(channelID)
 	if err != nil {
 		return err
 	}
 
+	if len(stream.lastFullFrame) == 0 {
+		return nil
+	}
+
 	var img image.Image
-	switch primaryVideoTrack.Codec {
+	switch stream.videoCodec {
 	case webrtc.MimeTypeH264:
-		img, err = decodeH264Snapshot([]byte{1, 2, 4})
+		img, err = decodeH264Snapshot(stream.lastFullFrame)
 	}
 	if err != nil {
 		return err
@@ -183,62 +264,30 @@ func (mgr *Control) SendThumbnail(channelID ChannelID) (err error) {
 	}
 
 	// Also update our metadata
-	stream.metadata.VideoWidth = img.Bounds().Dx()
-	stream.metadata.VideoHeight = img.Bounds().Dy()
+	stream.videoWidth = img.Bounds().Dx()
+	stream.videoHeight = img.Bounds().Dy()
 
-	return nil
-}
-
-func (mgr *Control) ReportMetadata(channelID ChannelID, value interface{}) error {
-	stream, err := mgr.getStream(channelID)
-	if err != nil {
-		return err
-	}
-
-	switch value.(type) {
-	case LostPacketsMetadata:
-		stream.metadata.LostPackets += value.(int)
-	case NackPacketsMetadata:
-		stream.metadata.NackPackets += value.(int)
-	case RecvPacketsMetadata:
-		stream.metadata.RecvPackets += value.(int)
-	case SourceBitrateMetadata:
-		stream.metadata.SourceBitrate = value.(int)
-	case SourcePingMetadata:
-		stream.metadata.SourcePing = value.(int)
-	case RecvVideoPacketsMetadata:
-		stream.metadata.RecvVideoPackets += value.(int)
-	case RecvAudioPacketsMetadata:
-		stream.metadata.RecvAudioPackets += value.(int)
-	}
-
-	return nil
-}
-
-func (mgr *Control) SendMetadata() error {
 	return nil
 }
 
 func (mgr *Control) newStream(channelID ChannelID) (*Stream, error) {
 	stream := &Stream{
-		authenticated: true,
-		mediaStarted:  false,
-		ChannelID:     channelID,
-		stopHeartbeat: make(chan bool, 1),
-		metadata: StreamMetadata{
-			LostPackets:       0,
-			NackPackets:       0,
-			RecvPackets:       0,
-			RecvAudioPackets:  0,
-			RecvVideoPackets:  0,
-			StreamTimeSeconds: 0,
-		},
+		authenticated:       true,
+		mediaStarted:        false,
+		ChannelID:           channelID,
+		stopHeartbeat:       make(chan bool, 1),
+		startTime:           time.Now().Unix(),
+		audioPackets:        0,
+		videoPackets:        0,
+		clientVendorName:    "",
+		clientVendorVersion: "",
 	}
 
 	if _, exists := mgr.streams[channelID]; exists {
 		return stream, errors.New("stream already exists in stream manager state")
 	}
 	mgr.streams[channelID] = stream
+	mgr.metadataCollectors[channelID] = make(chan bool, 1)
 
 	return stream, nil
 }

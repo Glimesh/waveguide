@@ -1,24 +1,18 @@
 package rtmp
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"image"
-	"image/jpeg"
 	"io"
 	"net"
-	"os"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/Glimesh/go-fdkaac/fdkaac"
 	"github.com/Glimesh/waveguide/pkg/control"
-	"github.com/Glimesh/waveguide/pkg/h264"
 	h264joy "github.com/nareix/joy5/codec/h264"
 	"github.com/pion/rtp"
 	"github.com/pion/rtp/codecs"
@@ -133,28 +127,6 @@ type connHandler struct {
 
 	stopMetadataCollection chan bool
 
-	// Metadata
-	startTime           int64
-	lastTime            int64 // Last time the metadata collector ran
-	audioBps            int
-	videoBps            int
-	audioPackets        int
-	videoPackets        int
-	lastAudioPackets    int
-	lastVideoPackets    int
-	clientVendorName    string
-	clientVendorVersion string
-	videoCodec          string
-	audioCodec          string
-	videoHeight         int
-	videoWidth          int
-
-	outputBytes int
-
-	debugSaveVideo bool
-	debugVideoFile *os.File
-	lastFullFrame  []byte
-
 	videoJoyCodec *h264joy.Codec
 }
 
@@ -171,12 +143,6 @@ func (h *connHandler) OnConnect(timestamp uint32, cmd *rtmpmsg.NetConnectionConn
 	h.videoClockRate = 90000
 	// TODO: This can be customized by the user, we should figure out how to infer it from the client
 	h.audioClockRate = 48000
-
-	h.startTime = time.Now().Unix()
-	h.audioCodec = "opus"
-	h.videoCodec = "H264"
-	h.videoHeight = 0
-	h.videoWidth = 0
 
 	return nil
 }
@@ -227,14 +193,15 @@ func (h *connHandler) OnPublish(ctx *gortmp.StreamContext, timestamp uint32, cmd
 		"stream_id":  h.streamID,
 	})
 
+	h.control.ReportMetadata(h.channelID, control.ClientVendorNameMetadata("rtmp"))
+	h.control.ReportMetadata(h.channelID, control.ClientVendorVersionMetadata("0.0.1"))
+
 	if err := h.initVideo(h.videoClockRate); err != nil {
 		return err
 	}
 	if err := h.initAudio(h.audioClockRate); err != nil {
 		return err
 	}
-
-	go h.setupMetadataCollector()
 
 	return nil
 }
@@ -261,10 +228,6 @@ func (h *connHandler) OnClose() {
 		h.audioDecoder.Close()
 		h.audioDecoder = nil
 	}
-
-	if h.debugSaveVideo {
-		h.debugVideoFile.Close()
-	}
 }
 
 func (h *connHandler) initAudio(clockRate uint32) (err error) {
@@ -283,6 +246,7 @@ func (h *connHandler) initAudio(clockRate uint32) (err error) {
 	h.audioDecoder = fdkaac.NewAacDecoder()
 
 	h.control.AddTrack(h.channelID, h.audioTrack, webrtc.MimeTypeOpus)
+	h.control.ReportMetadata(h.channelID, control.AudioCodecMetadata(webrtc.MimeTypeOpus))
 
 	return nil
 }
@@ -338,13 +302,12 @@ func (h *connHandler) OnAudio(timestamp uint32, payload io.Reader) error {
 		packets := h.audioPacketizer.Packetize(opusOutput, uint32(blockSize))
 
 		for _, p := range packets {
-			h.audioPackets++
-			h.outputBytes += len(p.Payload)
-
 			if err := h.audioTrack.WriteRTP(p); err != nil {
 				return err
 			}
 		}
+
+		h.control.ReportMetadata(h.channelID, control.AudioPacketsMetadata(len(packets)))
 	}
 
 	return nil
@@ -359,12 +322,8 @@ func (h *connHandler) initVideo(clockRate uint32) (err error) {
 		return err
 	}
 
-	if h.debugSaveVideo {
-		h.debugVideoFile, err = os.Create(fmt.Sprintf("debug-video-%d.h264", h.streamID))
-		return err
-	}
-
 	h.control.AddTrack(h.channelID, h.videoTrack, webrtc.MimeTypeH264)
+	h.control.ReportMetadata(h.channelID, control.VideoCodecMetadata(webrtc.MimeTypeH264))
 
 	return nil
 }
@@ -423,11 +382,9 @@ func (h *connHandler) OnVideo(timestamp uint32, payload io.Reader) error {
 		outBuf = data
 	}
 
-	h.debugVideoFile.Write(outBuf)
-
 	if video.FrameType == flvtag.FrameTypeKeyFrame {
 		// Save the last full keyframe for anything we may need, eg thumbnails
-		h.lastFullFrame = outBuf
+		h.control.ReportMetadata(h.channelID, control.VideoFrameMetadata(outBuf))
 	}
 
 	// Likely there's more than one set of RTP packets in this read
@@ -435,127 +392,11 @@ func (h *connHandler) OnVideo(timestamp uint32, payload io.Reader) error {
 	packets := h.videoPacketizer.Packetize(outBuf, samples)
 
 	for _, p := range packets {
-		h.videoPackets++
-		h.outputBytes += len(p.Payload)
-
 		if err := h.videoTrack.WriteRTP(p); err != nil {
 			return err
 		}
 	}
+	h.control.ReportMetadata(h.channelID, control.VideoPacketsMetadata(len(packets)))
 
 	return nil
-}
-
-func (h *connHandler) sendThumbnail() {
-	var img image.Image
-	h264dec, err := h264.NewH264Decoder()
-	if err != nil {
-		h.log.Error(err)
-		return
-	}
-	defer h264dec.Close()
-	img, err = h264dec.Decode(h.lastFullFrame)
-	if err != nil {
-		h.log.Error(err)
-		return
-	}
-
-	if img != nil {
-		buff := new(bytes.Buffer)
-		err = jpeg.Encode(buff, img, &jpeg.Options{
-			Quality: 75,
-		})
-		if err != nil {
-			h.log.Error(err)
-			return
-		}
-
-		err = h.control.SendThumbnail(h.channelID)
-		if err != nil {
-			h.log.Error(err)
-		}
-		buff.Reset()
-
-		// Also update our metadata
-		h.videoWidth = img.Bounds().Dx()
-		h.videoHeight = img.Bounds().Dy()
-	}
-}
-func (h *connHandler) sendMetadata() {
-	// h.streamID, services.StreamMetadata{
-	// AudioCodec:        h.audioCodec,
-	// IngestServer:      h.manager.orchestrator.ClientHostname,
-	// IngestViewers:     0,
-	// LostPackets:       0, // Don't exist
-	// NackPackets:       0, // Don't exist
-	// RecvPackets:       h.videoPackets + h.audioPackets,
-	// SourceBitrate:     0, // Likely just need to calculate the bytes between two 5s snapshots?
-	// SourcePing:        0, // Not accessible unless we ping them manually
-	// StreamTimeSeconds: int(h.lastTime - h.startTime),
-	// VendorName:        h.clientVendorName,
-	// VendorVersion:     h.clientVendorVersion,
-	// VideoCodec:        h.videoCodec,
-	// VideoHeight:       h.videoHeight,
-	// VideoWidth:        h.videoWidth,
-	// }
-
-	err := h.control.SendMetadata()
-	if err != nil {
-		h.log.Error(err)
-	}
-}
-
-func (h *connHandler) setupMetadataCollector() {
-	ticker := time.NewTicker(5 * time.Second)
-	go func() {
-		for {
-			select {
-			case <-ticker.C:
-				h.lastTime = time.Now().Unix()
-
-				h.log.WithFields(logrus.Fields{
-					"keyframes":   h.lastKeyFrames,
-					"interframes": h.lastInterFrames,
-					"packets":     h.videoPackets - h.lastVideoPackets,
-					"bytes":       h.outputBytes,
-				}).Debug("Processed 5s of input frames from RTMP input")
-
-				// Check to ensure we're not over our bandwidth limit
-				if h.outputBytes >= BANDWIDTH_LIMIT {
-					h.log.Errorf("Sent %d bytes over the last 5 seconds, ending stream", h.outputBytes)
-					h.errored = true
-				}
-				h.outputBytes = 0
-
-				// Calculate some of our last fields
-				h.audioBps = 0
-
-				h.lastVideoPackets = h.videoPackets
-				h.lastKeyFrames = 0
-				h.lastInterFrames = 0
-
-				if len(h.lastFullFrame) > 0 {
-					// Todo: Handle thumbnail failures
-					h.sendThumbnail()
-				}
-
-				err := h.control.SendMetadata()
-				if err != nil {
-					// Unauthenticate us so the next Video / Audio packet can stop the stream
-					h.metadataFailures += 1
-					if h.metadataFailures > 5 {
-						h.errored = true
-						h.log.Error("Metadata failures exceed 5, terminating the stream")
-					}
-
-					h.log.Warn(err)
-				}
-				h.metadataFailures = 0
-
-			case <-h.stopMetadataCollection:
-				ticker.Stop()
-				return
-			}
-		}
-	}()
 }

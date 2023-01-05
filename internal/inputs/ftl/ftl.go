@@ -3,7 +3,6 @@ package ftl
 import (
 	"context"
 	"io"
-	"log"
 	"net"
 
 	"github.com/Glimesh/waveguide/pkg/control"
@@ -37,7 +36,7 @@ func (s *FTLSource) SetLogger(log logrus.FieldLogger) {
 }
 
 func (s *FTLSource) Listen(ctx context.Context) {
-	log.Printf("Starting FTL server on %s", s.config.Address)
+	s.log.Printf("Starting FTL server on %s", s.config.Address)
 
 	tcpAddr, err := net.ResolveTCPAddr("tcp", s.config.Address)
 	if err != nil {
@@ -94,11 +93,13 @@ func (c *connHandler) OnTracks(video *webrtc.TrackLocalStaticRTP, audio *webrtc.
 	c.control.AddTrack(c.channelID, video, webrtc.MimeTypeH264)
 	c.control.AddTrack(c.channelID, audio, webrtc.MimeTypeOpus)
 
+	c.control.ReportMetadata(c.channelID, control.AudioCodecMetadata(webrtc.MimeTypeOpus))
+	c.control.ReportMetadata(c.channelID, control.VideoCodecMetadata(webrtc.MimeTypeH264))
+
 	return nil
 }
 
 func (c *connHandler) OnPlay() error {
-
 	return nil
 }
 

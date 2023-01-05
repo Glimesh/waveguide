@@ -21,12 +21,37 @@ type Stream struct {
 	StreamID  StreamID
 	StreamKey StreamKey
 
-	tracks        []StreamTrack
-	videoCodec    string
-	lastFullFrame []byte
+	tracks []StreamTrack
 
 	metadata StreamMetadata
+
+	// Raw Metadata
+	startTime           int64
+	lastTime            int64 // Last time the metadata collector ran
+	audioBps            int
+	videoBps            int
+	audioPackets        int
+	videoPackets        int
+	lastAudioPackets    int
+	lastVideoPackets    int
+	clientVendorName    string
+	clientVendorVersion string
+	videoCodec          string
+	audioCodec          string
+	videoHeight         int
+	videoWidth          int
+	lastFullFrame       []byte
 }
+
+type AudioPacketsMetadata int
+type AudioCodecMetadata string
+type VideoPacketsMetadata int
+type VideoCodecMetadata string
+type VideoHeightMetadata int
+type VideoWidthMetadata int
+type VideoFrameMetadata []byte
+type ClientVendorNameMetadata string
+type ClientVendorVersionMetadata string
 
 type StreamMetadata struct {
 	AudioCodec        string
@@ -46,14 +71,6 @@ type StreamMetadata struct {
 	VideoWidth        int
 	RecvVideoPackets  int
 }
-
-type LostPacketsMetadata int
-type NackPacketsMetadata int
-type RecvPacketsMetadata int
-type SourceBitrateMetadata int
-type SourcePingMetadata int
-type RecvVideoPacketsMetadata int
-type RecvAudioPacketsMetadata int
 
 // const (
 // 	// AudioCodecType string

@@ -64,7 +64,7 @@ func main() {
 	orchestrator.SetLogger(log.WithField("orchestrator", service.Name()))
 	orchestrator.Connect()
 
-	ctrl := control.New()
+	ctrl := control.New(hostname)
 	ctrl.SetService(service)
 	ctrl.SetOrchestrator(orchestrator)
 

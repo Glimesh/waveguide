@@ -187,7 +187,7 @@ func (conn *FtlConnection) eternalRead() error {
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		conn.log.Printf("Invalid input: %s", err)
+		conn.log.Errorf("Invalid input: %s", err)
 	}
 
 	return nil
@@ -195,7 +195,7 @@ func (conn *FtlConnection) eternalRead() error {
 
 func (conn *FtlConnection) SendMessage(message string) error {
 	message = message + "\n"
-	conn.log.Printf("SEND: %q", message)
+	conn.log.Debugf("SEND: %q", message)
 	_, err := conn.transport.Write([]byte(message))
 	return err
 }
@@ -215,7 +215,7 @@ func (conn *FtlConnection) Close() error {
 }
 
 func (conn *FtlConnection) ProcessCommand(command string) error {
-	conn.log.Printf("RECV: %q", command)
+	conn.log.Debugf("RECV: %q", command)
 	if command == "HMAC" {
 		return conn.processHmacCommand()
 	} else if strings.Contains(command, "DISCONNECT") {
@@ -229,7 +229,7 @@ func (conn *FtlConnection) ProcessCommand(command string) error {
 	} else if command == "." {
 		return conn.processDotCommand()
 	} else {
-		conn.log.Printf("Unknown ingest command: %s", command)
+		conn.log.Warnf("Unknown ingest command: %s", command)
 	}
 	return nil
 }
@@ -349,7 +349,7 @@ func (conn *FtlConnection) processAttributeCommand(message string) error {
 	case "AudioIngestSSRC":
 		conn.Metadata.AudioIngestSsrc = parseAttributeToUint(value)
 	default:
-		conn.log.Printf("Unexpected Attribute: %q\n", message)
+		conn.log.Infof("Unexpected Attribute: %q", message)
 	}
 
 	return nil
@@ -436,7 +436,7 @@ func (conn *FtlConnection) listenForMedia() error {
 		return err
 	}
 
-	conn.log.Printf("Listening for UDP connections on: %d", conn.assignedMediaPort)
+	conn.log.Infof("Listening for UDP connections on: %d", conn.assignedMediaPort)
 
 	go func() {
 		for {
