@@ -24,6 +24,9 @@ type Config struct {
 	Endpoint string
 	// Key is the secret key to be used for stateful changes
 	Key string
+
+	// Needs to be hardcoded for now...
+	WhepEndpoint string `mapstructure:"whep_endpoint"`
 }
 
 func New(config Config, hostname string) *Client {
@@ -132,6 +135,5 @@ func (client *Client) routerEndpoint(path string) string {
 }
 
 func (client *Client) channelEndpoint(channelID control.ChannelID) string {
-	// client.hostname
-	return fmt.Sprintf("https://%s/whep/endpoint/%d", client.hostname, channelID)
+	return fmt.Sprintf("%s/whep/endpoint/%d", client.config.WhepEndpoint, channelID)
 }

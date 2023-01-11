@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	_ "net/http/pprof"
 	"os"
 
@@ -39,6 +40,11 @@ func main() {
 	if err != nil {
 		log.Fatal(fmt.Errorf("fatal error config file: %w", err))
 	}
+
+	// Temporary for debugging
+	go func() {
+		log.Println(http.ListenAndServe(":6060", nil))
+	}()
 
 	var service control.Service
 	switch viper.GetString("control.service") {

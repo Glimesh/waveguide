@@ -81,7 +81,7 @@ func (s *WHEPServer) Listen(ctx context.Context) {
 		peerConnection, err := webrtc.NewPeerConnection(webrtc.Configuration{
 			ICEServers: []webrtc.ICEServer{
 				{
-					// URLs: []string{"stun:stun.l.google.com:19302"},
+					URLs: []string{"stun:stun.l.google.com:19302"},
 				},
 			},
 		})

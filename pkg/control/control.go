@@ -178,6 +178,7 @@ func (mgr *Control) ReportMetadata(channelID ChannelID, value interface{}) error
 func (mgr *Control) setupHeartbeat(channelID ChannelID) {
 	ticker := time.NewTicker(15 * time.Second)
 	go func() {
+		errors := 0
 		for {
 			select {
 			case <-ticker.C:
@@ -200,6 +201,18 @@ func (mgr *Control) setupHeartbeat(channelID ChannelID) {
 				if err != nil {
 					fmt.Println(err)
 				}
+
+				if err != nil {
+					// Close the stream
+					fmt.Println("Stopping stream due to errors exceeding 5")
+					errors += 1
+
+				}
+				if errors > 5 {
+					mgr.StopStream(channelID)
+				}
+
+				errors = 0
 
 			case <-mgr.metadataCollectors[channelID]:
 				ticker.Stop()
