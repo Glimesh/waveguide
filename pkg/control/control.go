@@ -210,6 +210,8 @@ func (mgr *Control) setupHeartbeat(channelID ChannelID) {
 				}
 				if errors > 5 {
 					mgr.StopStream(channelID)
+					ticker.Stop()
+					return
 				}
 
 				errors = 0
