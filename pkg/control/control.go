@@ -296,12 +296,7 @@ func (mgr *Control) sendThumbnail(channelID ChannelID) (err error) {
 		data = sample.Data
 	}
 
-	var img image.Image
-	switch stream.videoCodec {
-	case webrtc.MimeTypeH264:
-		img, err = decodeH264Snapshot(data)
-	}
-
+	img, err := decodeH264Snapshot(data)
 	if err != nil {
 		return err
 	}
