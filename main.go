@@ -74,6 +74,7 @@ func main() {
 	ctrl := control.New(hostname)
 	ctrl.SetService(service)
 	ctrl.SetOrchestrator(orchestrator)
+	ctrl.SetLogger(log)
 
 	ctx := context.Background()
 	for inputName := range viper.GetStringMap("input") {
