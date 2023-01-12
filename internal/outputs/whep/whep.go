@@ -78,13 +78,7 @@ func (s *WHEPServer) Listen(ctx context.Context) {
 
 		ttl := time.Now().Add(PC_TIMEOUT)
 
-		peerConnection, err := webrtc.NewPeerConnection(webrtc.Configuration{
-			ICEServers: []webrtc.ICEServer{
-				{
-					URLs: []string{"stun:stun.l.google.com:19302"},
-				},
-			},
-		})
+		peerConnection, err := webrtc.NewPeerConnection(webrtc.Configuration{})
 		if err != nil {
 			s.log.Error(err)
 			errCustom(w, r, "error establishing webrtc connection")

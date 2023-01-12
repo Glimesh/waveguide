@@ -384,10 +384,11 @@ func (h *connHandler) OnVideo(timestamp uint32, payload io.Reader) error {
 		outBuf = data
 	}
 
-	// if video.FrameType == flvtag.FrameTypeKeyFrame {
-	// 	// Save the last full keyframe for anything we may need, eg thumbnails
-	// 	h.control.ReportMetadata(h.channelID, control.VideoFrameMetadata(outBuf))
-	// }
+	if video.FrameType == flvtag.FrameTypeKeyFrame {
+		// Save the last full keyframe for anything we may need, eg thumbnails
+		// h.control.ReportMetadata(h.channelID, control.VideoFrameMetadata(outBuf))
+		h.control.ReportLastKeyframe(h.channelID, outBuf)
+	}
 
 	// Likely there's more than one set of RTP packets in this read
 	samples := uint32(len(outBuf)) + h.videoClockRate
@@ -397,8 +398,8 @@ func (h *connHandler) OnVideo(timestamp uint32, payload io.Reader) error {
 		if err := h.videoTrack.WriteRTP(p); err != nil {
 			return err
 		}
-		h.control.ReportVideoPacket(h.channelID, p)
 	}
+
 	h.control.ReportMetadata(h.channelID, control.VideoPacketsMetadata(len(packets)))
 
 	return nil

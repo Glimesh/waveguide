@@ -158,6 +158,9 @@ func (mgr *Control) ReportMetadata(channelID ChannelID, metadatas ...Metadata) e
 	return nil
 }
 
+// ReportVideoPacket is used to send the control packets that it should later use for
+// image generation or other video needs.
+// Should be refactored to be faster since it's called on every packet.
 func (mgr *Control) ReportVideoPacket(channelID ChannelID, packet *rtp.Packet) error {
 	stream, err := mgr.getStream(channelID)
 	if err != nil {
@@ -165,8 +168,21 @@ func (mgr *Control) ReportVideoPacket(channelID ChannelID, packet *rtp.Packet) e
 	}
 
 	if h264.IsKeyframePart(packet.Payload) {
-		stream.videoSamples.Push(packet)
+		stream.recentVideoPackets = append(stream.recentVideoPackets, packet)
 	}
+
+	return nil
+}
+
+// ReportLastKeyframe works similar to ReportVideoPacket, except it's used in situations
+// where we are converting from other video formats and we easily know the keyframes.
+func (mgr *Control) ReportLastKeyframe(channelID ChannelID, keyframe []byte) error {
+	stream, err := mgr.getStream(channelID)
+	if err != nil {
+		return err
+	}
+
+	stream.lastKeyframe = keyframe
 
 	return nil
 }
@@ -256,18 +272,33 @@ func (mgr *Control) sendThumbnail(channelID ChannelID) (err error) {
 		return err
 	}
 
-	sample := stream.videoSamples.Pop()
-	if sample == nil {
-		fmt.Println("sample is nil")
-		return nil
+	defer func() {
+		fmt.Println("Cleaning up recentVideoPackets")
+		stream.recentVideoPackets = make([]*rtp.Packet, 0)
+	}()
+
+	var data []byte
+	if stream.lastKeyframe != nil {
+		data = stream.lastKeyframe
+	} else {
+		samples := samplebuilder.New(100, &codecs.H264Packet{}, 90000)
+		for _, packet := range stream.recentVideoPackets {
+			samples.Push(packet)
+		}
+
+		sample := samples.Pop()
+		if sample == nil {
+			return nil
+		}
+		data = sample.Data
 	}
 
 	var img image.Image
 	switch stream.videoCodec {
 	case webrtc.MimeTypeH264:
-		img, err = decodeH264Snapshot(sample.Data)
-
+		img, err = decodeH264Snapshot(data)
 	}
+
 	if err != nil {
 		return err
 	}
@@ -309,7 +340,7 @@ func (mgr *Control) newStream(channelID ChannelID) (*Stream, error) {
 		videoPackets:        0,
 		clientVendorName:    "",
 		clientVendorVersion: "",
-		videoSamples:        samplebuilder.New(100, &codecs.H264Packet{}, 90000),
+		recentVideoPackets:  make([]*rtp.Packet, 0),
 	}
 
 	if _, exists := mgr.streams[channelID]; exists {

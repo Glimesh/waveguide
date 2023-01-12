@@ -203,9 +203,7 @@ func (s *JanusSource) negotiate(sdpString string, pluginUrl string) {
 	var peerConnection *webrtc.PeerConnection
 	peerConnection, err = webrtc.NewPeerConnection(webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{
-			{
-				URLs: []string{"stun:stun.l.google.com:19302"},
-			},
+			{},
 		},
 		SDPSemantics: webrtc.SDPSemanticsUnifiedPlanWithFallback,
 	})
