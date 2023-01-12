@@ -1,6 +1,8 @@
 package control
 
 import (
+	"sync"
+
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v3"
 )
@@ -45,6 +47,7 @@ type Stream struct {
 	videoWidth          int
 
 	recentVideoPackets []*rtp.Packet
+	lastKeyframeMu     sync.RWMutex
 	lastKeyframe       []byte
 }
 

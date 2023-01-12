@@ -181,6 +181,8 @@ func (mgr *Control) ReportLastKeyframe(channelID ChannelID, keyframe []byte) err
 	if err != nil {
 		return err
 	}
+	stream.lastKeyframeMu.Lock()
+	defer stream.lastKeyframeMu.Unlock()
 
 	stream.lastKeyframe = keyframe
 
@@ -271,8 +273,10 @@ func (mgr *Control) sendThumbnail(channelID ChannelID) (err error) {
 	if err != nil {
 		return err
 	}
+	stream.lastKeyframeMu.Lock()
 
 	defer func() {
+		stream.lastKeyframeMu.Unlock()
 		if error := recover(); error != nil {
 			fmt.Println("Catching img panic: ", err)
 		}
