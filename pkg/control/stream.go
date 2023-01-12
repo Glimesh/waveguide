@@ -1,6 +1,10 @@
 package control
 
-import "github.com/pion/webrtc/v3"
+import (
+	"github.com/pion/rtp"
+	"github.com/pion/webrtc/v3"
+	"github.com/pion/webrtc/v3/pkg/media/samplebuilder"
+)
 
 type StreamTrack struct {
 	Type  webrtc.RTPCodecType
@@ -41,17 +45,10 @@ type Stream struct {
 	videoHeight         int
 	videoWidth          int
 	lastFullFrame       []byte
-}
 
-type AudioPacketsMetadata int
-type AudioCodecMetadata string
-type VideoPacketsMetadata int
-type VideoCodecMetadata string
-type VideoHeightMetadata int
-type VideoWidthMetadata int
-type VideoFrameMetadata []byte
-type ClientVendorNameMetadata string
-type ClientVendorVersionMetadata string
+	videoPacketsSinceLastBeat []*rtp.Packet
+	videoSamples              samplebuilder.SampleBuilder
+}
 
 type StreamMetadata struct {
 	AudioCodec        string
@@ -69,22 +66,3 @@ type StreamMetadata struct {
 	VideoHeight       int
 	VideoWidth        int
 }
-
-// const (
-// 	// AudioCodecType string
-// 	IngestServer iota
-// 	IngestViewers
-// 	LostPackets
-// 	NackPackets
-// 	RecvPackets
-// 	SourceBitrate
-// 	// SourcePing
-// 	StreamTimeSeconds
-// 	VendorName
-// 	VendorVersion
-// 	VideoCodec
-// 	VideoHeight
-// 	VideoWidth
-// )
-
-// type SourcePing int

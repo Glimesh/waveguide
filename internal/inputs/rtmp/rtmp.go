@@ -193,8 +193,10 @@ func (h *connHandler) OnPublish(ctx *gortmp.StreamContext, timestamp uint32, cmd
 		"stream_id":  h.streamID,
 	})
 
-	h.control.ReportMetadata(h.channelID, control.ClientVendorNameMetadata("rtmp"))
-	h.control.ReportMetadata(h.channelID, control.ClientVendorVersionMetadata("0.0.1"))
+	h.control.ReportMetadata(h.channelID,
+		control.ClientVendorNameMetadata("waveguide-rtmp-input"),
+		control.ClientVendorVersionMetadata("0.0.1"),
+	)
 
 	if err := h.initVideo(h.videoClockRate); err != nil {
 		return err
@@ -382,10 +384,10 @@ func (h *connHandler) OnVideo(timestamp uint32, payload io.Reader) error {
 		outBuf = data
 	}
 
-	if video.FrameType == flvtag.FrameTypeKeyFrame {
-		// Save the last full keyframe for anything we may need, eg thumbnails
-		h.control.ReportMetadata(h.channelID, control.VideoFrameMetadata(outBuf))
-	}
+	// if video.FrameType == flvtag.FrameTypeKeyFrame {
+	// 	// Save the last full keyframe for anything we may need, eg thumbnails
+	// 	h.control.ReportMetadata(h.channelID, control.VideoFrameMetadata(outBuf))
+	// }
 
 	// Likely there's more than one set of RTP packets in this read
 	samples := uint32(len(outBuf)) + h.videoClockRate
@@ -395,6 +397,7 @@ func (h *connHandler) OnVideo(timestamp uint32, payload io.Reader) error {
 		if err := h.videoTrack.WriteRTP(p); err != nil {
 			return err
 		}
+		h.control.ReportVideoPacket(h.channelID, p)
 	}
 	h.control.ReportMetadata(h.channelID, control.VideoPacketsMetadata(len(packets)))
 

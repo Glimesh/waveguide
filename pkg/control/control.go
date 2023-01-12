@@ -9,7 +9,10 @@ import (
 	"time"
 
 	"github.com/Glimesh/waveguide/pkg/h264"
+	"github.com/pion/rtp"
+	"github.com/pion/rtp/codecs"
 	"github.com/pion/webrtc/v3"
+	"github.com/pion/webrtc/v3/pkg/media/samplebuilder"
 )
 
 type Pipe struct {
@@ -142,35 +145,26 @@ func (mgr *Control) StopStream(channelID ChannelID) (err error) {
 	return mgr.removeStream(channelID)
 }
 
-func (mgr *Control) ReportMetadata(channelID ChannelID, value interface{}) error {
-	_, err := mgr.getStream(channelID)
+func (mgr *Control) ReportMetadata(channelID ChannelID, metadatas ...Metadata) error {
+	stream, err := mgr.getStream(channelID)
 	if err != nil {
 		return err
 	}
 
-	// fmt.Printf("%v", value.(type))
-	// switch value.(type) {
-	// case AudioPacketsMetadata:
-	// 	stream.audioPackets += value.(int)
-	// 	stream.lastAudioPackets = value.(int)
-	// case VideoPacketsMetadata:
-	// 	stream.videoPackets += value.(int)
-	// 	stream.lastVideoPackets = value.(int)
-	// case ClientVendorNameMetadata:
-	// 	stream.clientVendorName = fmt.Sprint(value)
-	// case ClientVendorVersionMetadata:
-	// 	stream.clientVendorVersion = fmt.Sprint(value)
-	// case AudioCodecMetadata:
-	// 	stream.audioCodec = fmt.Sprint(value)
-	// case VideoCodecMetadata:
-	// 	stream.videoCodec = fmt.Sprint(value)
-	// case VideoHeightMetadata:
-	// 	stream.videoHeight = value.(int)
-	// case VideoWidthMetadata:
-	// 	stream.videoWidth = value.(int)
-	// case VideoFrameMetadata:
-	// 	stream.lastFullFrame = []byte(value)
-	// }
+	for _, metadata := range metadatas {
+		metadata(stream)
+	}
+
+	return nil
+}
+
+func (mgr *Control) ReportVideoPacket(channelID ChannelID, packet *rtp.Packet) error {
+	stream, err := mgr.getStream(channelID)
+	if err != nil {
+		return err
+	}
+
+	stream.videoPacketsSinceLastBeat = append(stream.videoPacketsSinceLastBeat, packet)
 
 	return nil
 }
@@ -179,10 +173,13 @@ func (mgr *Control) setupHeartbeat(channelID ChannelID) {
 	ticker := time.NewTicker(15 * time.Second)
 	go func() {
 		errors := 0
+		// Todo: Move this somewhere else
+
 		for {
 			select {
 			case <-ticker.C:
 				var err error
+				fmt.Println("start beat")
 
 				fmt.Println("Sending thumbnail")
 				err = mgr.sendThumbnail(channelID)
@@ -215,6 +212,7 @@ func (mgr *Control) setupHeartbeat(channelID ChannelID) {
 				}
 
 				errors = 0
+				fmt.Println("end beat")
 
 			case <-mgr.metadataCollectors[channelID]:
 				ticker.Stop()
@@ -256,17 +254,35 @@ func (mgr *Control) sendThumbnail(channelID ChannelID) (err error) {
 		return err
 	}
 
-	if len(stream.lastFullFrame) == 0 {
+	sampler := samplebuilder.New(20, &codecs.H264Packet{}, 90000)
+	packets := stream.videoPacketsSinceLastBeat
+
+	for _, packet := range packets {
+		if isKeyframePart(packet) {
+			sampler.Push(packet)
+		}
+	}
+
+	// reset the buffer
+	stream.videoPacketsSinceLastBeat = make([]*rtp.Packet, 0)
+
+	sample := sampler.Pop()
+	if sample == nil {
+		fmt.Println("sample is nil")
 		return nil
 	}
 
 	var img image.Image
-	switch stream.videoCodec {
-	case webrtc.MimeTypeH264:
-		img, err = decodeH264Snapshot(stream.lastFullFrame)
-	}
+	// switch stream.videoCodec {
+	// case webrtc.MimeTypeH264:
+
+	// }
+	img, err = decodeH264Snapshot(sample.Data)
 	if err != nil {
 		return err
+	}
+	if img == nil {
+		return nil
 	}
 
 	buff := new(bytes.Buffer)
@@ -277,10 +293,12 @@ func (mgr *Control) sendThumbnail(channelID ChannelID) (err error) {
 		return err
 	}
 
-	mgr.service.SendJpegPreviewImage(stream.StreamID, buff.Bytes())
+	err = mgr.service.SendJpegPreviewImage(stream.StreamID, buff.Bytes())
 	if err != nil {
 		return err
 	}
+
+	fmt.Println("Got screenshot!")
 
 	// Also update our metadata
 	stream.videoWidth = img.Bounds().Dx()
@@ -300,6 +318,8 @@ func (mgr *Control) newStream(channelID ChannelID) (*Stream, error) {
 		videoPackets:        0,
 		clientVendorName:    "",
 		clientVendorVersion: "",
+		// Some arbitrary number for now.
+		videoPacketsSinceLastBeat: make([]*rtp.Packet, 0),
 	}
 
 	if _, exists := mgr.streams[channelID]; exists {
@@ -348,6 +368,40 @@ func decodeH264Snapshot(lastFullFrame []byte) (image.Image, error) {
 	}
 
 	return img, nil
+}
+
+func isKeyframePart(packet *rtp.Packet) bool {
+	// Thank you Hayden :)
+	// Is this packet part of a keyframe?
+	packetPayload := packet.Payload
+	if len(packetPayload) < 2 {
+		return false
+	}
+	isKeyframePart := false
+	nalType := packetPayload[0] & 0b00011111
+	// nalType 7 = Sequence Parameter Set / nalType 8 = Picture Parameter Set
+	// nalType 5 = IDR
+	// nalType 28 = Fragmentation unit (FU-A)
+	// nalType 29 = Fragmentation unit (FU-A)
+	if (nalType == 7) || (nalType == 8) {
+		// SPS often precedes an IDR (Instantaneous Decoder Refresh) aka Keyframe
+		// and provides information on how to decode it. We should keep this around.
+		isKeyframePart = true
+	} else if nalType == 5 {
+		// Managed to fit an entire IDR into one packet!
+		isKeyframePart = true
+	} else if nalType == 28 || nalType == 29 {
+
+		// See https://tools.ietf.org/html/rfc3984#section-5.8
+		fragmentType := packetPayload[1] & 0b00011111
+		// fragmentType 7 = Fragment of SPS
+		// fragmentType 5 = Fragment of IDR
+		if (fragmentType == 7) || (fragmentType == 5) {
+			isKeyframePart = true
+		}
+	}
+
+	return isKeyframePart
 }
 
 // func (mgr *Control) WatchChannel(channelID ChannelID, clientConnection *webrtc.PeerConnection) {

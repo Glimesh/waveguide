@@ -14,7 +14,6 @@ import (
 	"strings"
 
 	"github.com/pion/rtp"
-	"github.com/pion/webrtc/v3"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
@@ -58,8 +57,9 @@ type Handler interface {
 	GetHmacKey() (string, error)
 
 	OnConnect(ChannelID) error
-	OnPlay() error
-	OnTracks(video *webrtc.TrackLocalStaticRTP, audio *webrtc.TrackLocalStaticRTP) error
+	OnPlay(FtlConnectionMetadata) error
+	OnVideo(*rtp.Packet) error
+	OnAudio(*rtp.Packet) error
 	OnClose()
 }
 
@@ -142,9 +142,6 @@ type FtlConnection struct {
 	hmacRequested    bool
 
 	Metadata *FtlConnectionMetadata
-
-	videoTrack *webrtc.TrackLocalStaticRTP
-	audioTrack *webrtc.TrackLocalStaticRTP
 }
 
 type FtlConnectionMetadata struct {
@@ -378,7 +375,7 @@ func (conn *FtlConnection) processDotCommand() error {
 	}
 
 	// Push it to a clients map so we can reference it later
-	if err := conn.handler.OnPlay(); err != nil {
+	if err := conn.handler.OnPlay(*conn.Metadata); err != nil {
 		return err
 	}
 
@@ -426,16 +423,6 @@ func (conn *FtlConnection) listenForMedia() error {
 	conn.mediaTransport = mediaConn
 	conn.mediaConnected = true
 
-	err = conn.createMediaTracks()
-	if err != nil {
-		conn.Close()
-		return err
-	}
-
-	if err := conn.handler.OnTracks(conn.videoTrack, conn.audioTrack); err != nil {
-		return err
-	}
-
 	conn.log.Infof("Listening for UDP connections on: %d", conn.assignedMediaPort)
 
 	go func() {
@@ -447,26 +434,6 @@ func (conn *FtlConnection) listenForMedia() error {
 			}
 		}
 	}()
-
-	return nil
-}
-
-// Honestly this function should be refactored into something on OnVideo, OnAudio
-// so the library isn't coupled to RTP, but for now this is super fast.
-func (conn *FtlConnection) createMediaTracks() error {
-	var err error
-
-	// Create a video track
-	conn.videoTrack, err = webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: "video/h264"}, "video", "pion")
-	if err != nil {
-		return err
-	}
-
-	// Create an audio track
-	conn.audioTrack, err = webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: "audio/opus"}, "audio", "pion")
-	if err != nil {
-		return err
-	}
 
 	return nil
 }
@@ -490,12 +457,12 @@ func (conn *FtlConnection) eternalMediaRead() error {
 
 	// The FTL client actually tells us what PayloadType to use for these: VideoPayloadType & AudioPayloadType
 	if packet.Header.PayloadType == conn.Metadata.VideoPayloadType {
-		if err := conn.videoTrack.WriteRTP(packet); err != nil {
+		if err := conn.handler.OnVideo(packet); err != nil {
 			return errors.Wrap(ErrWrite, err.Error())
 		}
 		// conn.readVideoBytes = conn.readVideoBytes + n
 	} else if packet.Header.PayloadType == conn.Metadata.AudioPayloadType {
-		if err := conn.audioTrack.WriteRTP(packet); err != nil {
+		if err := conn.handler.OnAudio(packet); err != nil {
 			return errors.Wrap(ErrWrite, err.Error())
 		}
 		// conn.readAudioBytes = conn.readAudioBytes + n
