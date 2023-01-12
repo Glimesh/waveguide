@@ -273,6 +273,9 @@ func (mgr *Control) sendThumbnail(channelID ChannelID) (err error) {
 	}
 
 	defer func() {
+		if error := recover(); error != nil {
+			fmt.Println("Catching img panic: ", err)
+		}
 		fmt.Println("Cleaning up recentVideoPackets")
 		stream.recentVideoPackets = make([]*rtp.Packet, 0)
 	}()
