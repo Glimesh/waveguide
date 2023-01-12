@@ -281,7 +281,7 @@ func (mgr *Control) sendThumbnail(channelID ChannelID) (err error) {
 	}()
 
 	var data []byte
-	if stream.lastKeyframe != nil {
+	if len(stream.lastKeyframe) > 0 {
 		data = stream.lastKeyframe
 	} else {
 		samples := samplebuilder.New(100, &codecs.H264Packet{}, 90000)
