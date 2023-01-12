@@ -299,8 +299,17 @@ func (mgr *Control) sendThumbnail(channelID ChannelID) (err error) {
 		}
 		data = sample.Data
 	}
+	if len(data) == 0 {
+		return nil
+	}
 
-	img, err := decodeH264Snapshot(data)
+	var img image.Image
+	h264dec, err := h264.NewH264Decoder()
+	if err != nil {
+		return err
+	}
+	defer h264dec.Close()
+	img, err = h264dec.Decode(data)
 	if err != nil {
 		return err
 	}

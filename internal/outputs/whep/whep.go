@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"path"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/Glimesh/waveguide/pkg/control"
@@ -35,13 +36,15 @@ type WHEPServer struct {
 	config  WHEPConfig
 	control *control.Control
 
-	peerConnections map[string]*webrtc.PeerConnection
+	peerConnectionsMutex sync.RWMutex
+	peerConnections      map[string]*webrtc.PeerConnection
 }
 
 func New(config WHEPConfig) *WHEPServer {
 	return &WHEPServer{
-		config:          config,
-		peerConnections: make(map[string]*webrtc.PeerConnection),
+		config:               config,
+		peerConnectionsMutex: sync.RWMutex{},
+		peerConnections:      make(map[string]*webrtc.PeerConnection),
 	}
 }
 
@@ -167,7 +170,11 @@ func (s *WHEPServer) Listen(ctx context.Context) {
 		s.log.Infof("WHEP Negotiation: peer=%s status=negotiating offer=accepted answer=created", unsafePcID)
 
 		answer := webrtc.SessionDescription{Type: webrtc.SDPTypeAnswer, SDP: string(body)}
-		pc := s.getPeerConnection(unsafePcID)
+		pc, ok := s.getPeerConnection(unsafePcID)
+		if !ok {
+			errCustom(w, r, "Unexpected error fetching peer connection")
+			return
+		}
 
 		if err = pc.SetRemoteDescription(answer); err != nil {
 			s.log.Error(err)
@@ -238,16 +245,23 @@ func httpsServer(address, cert, key string, log logrus.FieldLogger, mux *http.Se
 }
 
 func (s *WHEPServer) addPeerConnection(uuid string, pc *webrtc.PeerConnection) {
+	s.peerConnectionsMutex.Lock()
+	defer s.peerConnectionsMutex.Unlock()
+
 	s.peerConnections[uuid] = pc
 }
-func (s *WHEPServer) getPeerConnection(uuid string) *webrtc.PeerConnection {
-	return s.peerConnections[uuid]
+func (s *WHEPServer) getPeerConnection(uuid string) (*webrtc.PeerConnection, bool) {
+	s.peerConnectionsMutex.RLock()
+	defer s.peerConnectionsMutex.RUnlock()
+
+	val, ok := s.peerConnections[uuid]
+	return val, ok
 }
 func (s *WHEPServer) startPeerConnectionTimeout(uuid string) {
 	go func() {
 		time.Sleep(PC_TIMEOUT)
 
-		pc, ok := s.peerConnections[uuid]
+		pc, ok := s.getPeerConnection(uuid)
 		if ok && pc.ConnectionState() != webrtc.PeerConnectionStateConnected {
 			s.log.Infof("Peer %s took too long to connect, rejecting peer.", uuid)
 			s.cleanupPeerConnection(uuid)
@@ -255,6 +269,9 @@ func (s *WHEPServer) startPeerConnectionTimeout(uuid string) {
 	}()
 }
 func (s *WHEPServer) cleanupPeerConnection(uuid string) {
+	s.peerConnectionsMutex.Lock()
+	defer s.peerConnectionsMutex.Unlock()
+
 	if pc, ok := s.peerConnections[uuid]; ok {
 		pc.Close()
 	}

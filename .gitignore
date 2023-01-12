@@ -38,3 +38,5 @@ config.toml
 test/*.h264
 test/*.ogg
 test/*.mp4
+
+private/
