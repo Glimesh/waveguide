@@ -1,7 +1,6 @@
 package control
 
 import (
-	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v3"
 	"github.com/pion/webrtc/v3/pkg/media/samplebuilder"
 )
@@ -44,10 +43,8 @@ type Stream struct {
 	audioCodec          string
 	videoHeight         int
 	videoWidth          int
-	lastFullFrame       []byte
 
-	videoPacketsSinceLastBeat []*rtp.Packet
-	videoSamples              samplebuilder.SampleBuilder
+	videoSamples *samplebuilder.SampleBuilder
 }
 
 type StreamMetadata struct {

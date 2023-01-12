@@ -164,7 +164,9 @@ func (mgr *Control) ReportVideoPacket(channelID ChannelID, packet *rtp.Packet) e
 		return err
 	}
 
-	stream.videoPacketsSinceLastBeat = append(stream.videoPacketsSinceLastBeat, packet)
+	if h264.IsKeyframePart(packet.Payload) {
+		stream.videoSamples.Push(packet)
+	}
 
 	return nil
 }
@@ -254,34 +256,23 @@ func (mgr *Control) sendThumbnail(channelID ChannelID) (err error) {
 		return err
 	}
 
-	sampler := samplebuilder.New(20, &codecs.H264Packet{}, 90000)
-	packets := stream.videoPacketsSinceLastBeat
-
-	for _, packet := range packets {
-		if isKeyframePart(packet) {
-			sampler.Push(packet)
-		}
-	}
-
-	// reset the buffer
-	stream.videoPacketsSinceLastBeat = make([]*rtp.Packet, 0)
-
-	sample := sampler.Pop()
+	sample := stream.videoSamples.Pop()
 	if sample == nil {
 		fmt.Println("sample is nil")
 		return nil
 	}
 
 	var img image.Image
-	// switch stream.videoCodec {
-	// case webrtc.MimeTypeH264:
+	switch stream.videoCodec {
+	case webrtc.MimeTypeH264:
+		img, err = decodeH264Snapshot(sample.Data)
 
-	// }
-	img, err = decodeH264Snapshot(sample.Data)
+	}
 	if err != nil {
 		return err
 	}
 	if img == nil {
+		fmt.Println("img is nil")
 		return nil
 	}
 
@@ -318,8 +309,7 @@ func (mgr *Control) newStream(channelID ChannelID) (*Stream, error) {
 		videoPackets:        0,
 		clientVendorName:    "",
 		clientVendorVersion: "",
-		// Some arbitrary number for now.
-		videoPacketsSinceLastBeat: make([]*rtp.Packet, 0),
+		videoSamples:        samplebuilder.New(100, &codecs.H264Packet{}, 90000),
 	}
 
 	if _, exists := mgr.streams[channelID]; exists {
@@ -368,40 +358,6 @@ func decodeH264Snapshot(lastFullFrame []byte) (image.Image, error) {
 	}
 
 	return img, nil
-}
-
-func isKeyframePart(packet *rtp.Packet) bool {
-	// Thank you Hayden :)
-	// Is this packet part of a keyframe?
-	packetPayload := packet.Payload
-	if len(packetPayload) < 2 {
-		return false
-	}
-	isKeyframePart := false
-	nalType := packetPayload[0] & 0b00011111
-	// nalType 7 = Sequence Parameter Set / nalType 8 = Picture Parameter Set
-	// nalType 5 = IDR
-	// nalType 28 = Fragmentation unit (FU-A)
-	// nalType 29 = Fragmentation unit (FU-A)
-	if (nalType == 7) || (nalType == 8) {
-		// SPS often precedes an IDR (Instantaneous Decoder Refresh) aka Keyframe
-		// and provides information on how to decode it. We should keep this around.
-		isKeyframePart = true
-	} else if nalType == 5 {
-		// Managed to fit an entire IDR into one packet!
-		isKeyframePart = true
-	} else if nalType == 28 || nalType == 29 {
-
-		// See https://tools.ietf.org/html/rfc3984#section-5.8
-		fragmentType := packetPayload[1] & 0b00011111
-		// fragmentType 7 = Fragment of SPS
-		// fragmentType 5 = Fragment of IDR
-		if (fragmentType == 7) || (fragmentType == 5) {
-			isKeyframePart = true
-		}
-	}
-
-	return isKeyframePart
 }
 
 // func (mgr *Control) WatchChannel(channelID ChannelID, clientConnection *webrtc.PeerConnection) {
