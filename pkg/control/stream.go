@@ -1,10 +1,12 @@
 package control
 
 import (
-	"sync"
+	"errors"
 
+	"github.com/Glimesh/waveguide/pkg/h264"
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v3"
+	"github.com/pion/webrtc/v3/pkg/media/samplebuilder"
 )
 
 type StreamTrack struct {
@@ -28,15 +30,13 @@ type Stream struct {
 
 	tracks []StreamTrack
 
-	metadata StreamMetadata
-
 	// Raw Metadata
 	startTime           int64
 	lastTime            int64 // Last time the metadata collector ran
 	audioBps            int
 	videoBps            int
-	audioPackets        int
-	videoPackets        int
+	totalAudioPackets   int
+	totalVideoPackets   int
 	lastAudioPackets    int
 	lastVideoPackets    int
 	clientVendorName    string
@@ -46,9 +46,69 @@ type Stream struct {
 	videoHeight         int
 	videoWidth          int
 
-	recentVideoPackets []*rtp.Packet
-	lastKeyframeMu     sync.RWMutex
-	lastKeyframe       []byte
+	// recentVideoPackets []*rtp.Packet
+	lastKeyframe []byte
+
+	VideoPackets chan *rtp.Packet
+	videoSampler *samplebuilder.SampleBuilder
+}
+
+func (s *Stream) AddTrack(track webrtc.TrackLocal, codec string) error {
+	// TODO: Needs better support for tracks with different codecs
+	if track.Kind() == webrtc.RTPCodecTypeAudio {
+		s.hasSomeAudio = true
+		s.audioCodec = codec
+	} else if track.Kind() == webrtc.RTPCodecTypeVideo {
+		s.hasSomeVideo = true
+		s.videoCodec = codec
+	} else {
+		return errors.New("unexpected track kind")
+	}
+
+	s.tracks = append(s.tracks, StreamTrack{
+		Type:  track.Kind(),
+		Track: track,
+		Codec: codec,
+	})
+
+	return nil
+}
+
+func (s *Stream) ReportMetadata(metadatas ...Metadata) error {
+	for _, metadata := range metadatas {
+		metadata(s)
+	}
+
+	return nil
+}
+
+// ReportVideoPacket is used to send the control packets that it should later use for
+// image generation or other video needs.
+// Should be refactored to be faster since it's called on every packet.
+func (s *Stream) ReportVideoPacket(packet *rtp.Packet) error {
+	if h264.IsKeyframePart(packet.Payload) {
+		// s.recentVideoPackets = append(s.recentVideoPackets, packet)
+	}
+
+	return nil
+}
+
+// ReportLastKeyframe works similar to ReportVideoPacket, except it's used in situations
+// where we are converting from other video formats and we easily know the keyframes.
+func (s *Stream) ReportLastKeyframe(keyframe []byte) error {
+	s.lastKeyframe = keyframe
+
+	return nil
+}
+
+func (s *Stream) KeyframeCollector() {
+	for {
+		p := <-s.VideoPackets
+
+		if h264.IsKeyframePart(p.Payload) {
+			s.videoSampler.Push(p)
+		}
+	}
 }
 
 type StreamMetadata struct {

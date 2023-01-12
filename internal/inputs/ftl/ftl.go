@@ -74,6 +74,7 @@ type connHandler struct {
 
 	channelID control.ChannelID
 
+	stream     *control.Stream
 	videoTrack *webrtc.TrackLocalStaticRTP
 	audioTrack *webrtc.TrackLocalStaticRTP
 }
@@ -81,9 +82,12 @@ type connHandler struct {
 func (c *connHandler) OnConnect(channelID ftlproto.ChannelID) error {
 	c.channelID = control.ChannelID(channelID)
 
-	c.control.StartStream(c.channelID)
-
 	var err error
+	c.stream, err = c.control.StartStream(c.channelID)
+	if err != nil {
+		return err
+	}
+
 	// Create a video track
 	c.videoTrack, err = webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: "video/h264"}, "video", "pion")
 	if err != nil {
@@ -96,10 +100,10 @@ func (c *connHandler) OnConnect(channelID ftlproto.ChannelID) error {
 		return err
 	}
 
-	c.control.AddTrack(c.channelID, c.videoTrack, webrtc.MimeTypeH264)
-	c.control.AddTrack(c.channelID, c.audioTrack, webrtc.MimeTypeOpus)
+	c.stream.AddTrack(c.videoTrack, webrtc.MimeTypeH264)
+	c.stream.AddTrack(c.audioTrack, webrtc.MimeTypeOpus)
 
-	c.control.ReportMetadata(c.channelID,
+	c.stream.ReportMetadata(
 		control.AudioCodecMetadata(webrtc.MimeTypeOpus),
 		control.VideoCodecMetadata(webrtc.MimeTypeH264),
 	)
@@ -112,7 +116,7 @@ func (c *connHandler) GetHmacKey() (string, error) {
 }
 
 func (c *connHandler) OnPlay(metadata ftlproto.FtlConnectionMetadata) error {
-	c.control.ReportMetadata(c.channelID,
+	c.stream.ReportMetadata(
 		control.ClientVendorNameMetadata(metadata.VendorName),
 		control.ClientVendorVersionMetadata(metadata.VendorVersion),
 	)
@@ -123,7 +127,7 @@ func (c *connHandler) OnPlay(metadata ftlproto.FtlConnectionMetadata) error {
 func (c *connHandler) OnAudio(packet *rtp.Packet) error {
 	err := c.audioTrack.WriteRTP(packet)
 
-	c.control.ReportMetadata(c.channelID, control.AudioPacketsMetadata(len(packet.Payload)))
+	c.stream.ReportMetadata(control.AudioPacketsMetadata(len(packet.Payload)))
 
 	return err
 }
@@ -132,8 +136,8 @@ func (c *connHandler) OnVideo(packet *rtp.Packet) error {
 	// Write the RTP packet immediately, log after
 	err := c.videoTrack.WriteRTP(packet)
 
-	c.control.ReportVideoPacket(c.channelID, packet)
-	c.control.ReportMetadata(c.channelID, control.VideoPacketsMetadata(len(packet.Payload)))
+	c.stream.ReportVideoPacket(packet)
+	c.stream.ReportMetadata(control.VideoPacketsMetadata(len(packet.Payload)))
 
 	return err
 }

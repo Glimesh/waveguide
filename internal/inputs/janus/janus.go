@@ -168,8 +168,7 @@ func (s *JanusSource) Listen(ctx context.Context) {
 }
 
 func (s *JanusSource) negotiate(sdpString string, pluginUrl string) {
-	var err error
-	_, err = s.control.StartStream(control.ChannelID(s.config.ChannelId))
+	stream, err := s.control.StartStream(control.ChannelID(s.config.ChannelId))
 	if err != nil {
 		panic(err)
 	}
@@ -184,10 +183,10 @@ func (s *JanusSource) negotiate(sdpString string, pluginUrl string) {
 		panic(videoTrackErr)
 	}
 
-	s.control.AddTrack(control.ChannelID(s.config.ChannelId), videoTrack, webrtc.MimeTypeH264)
-	s.control.AddTrack(control.ChannelID(s.config.ChannelId), audioTrack, webrtc.MimeTypeOpus)
+	stream.AddTrack(videoTrack, webrtc.MimeTypeH264)
+	stream.AddTrack(audioTrack, webrtc.MimeTypeOpus)
 
-	s.control.ReportMetadata(s.channelID,
+	stream.ReportMetadata(
 		control.AudioCodecMetadata(webrtc.MimeTypeOpus),
 		control.VideoCodecMetadata(webrtc.MimeTypeH264),
 		control.ClientVendorNameMetadata("waveguide-janus-input"),
@@ -235,7 +234,7 @@ func (s *JanusSource) negotiate(sdpString string, pluginUrl string) {
 					panic(err)
 				}
 				audioTrack.WriteRTP(p)
-				s.control.ReportMetadata(s.channelID, control.AudioPacketsMetadata(len(p.Payload)))
+				stream.ReportMetadata(control.AudioPacketsMetadata(len(p.Payload)))
 			}
 		} else if codec.MimeType == "video/H264" {
 			s.log.Info("Got H264 track, sending to video track")
@@ -245,8 +244,8 @@ func (s *JanusSource) negotiate(sdpString string, pluginUrl string) {
 					panic(err)
 				}
 				videoTrack.WriteRTP(p)
-				s.control.ReportVideoPacket(s.channelID, p)
-				s.control.ReportMetadata(s.channelID, control.VideoPacketsMetadata(len(p.Payload)))
+				stream.VideoPackets <- p
+				stream.ReportMetadata(control.VideoPacketsMetadata(len(p.Payload)))
 			}
 		}
 	})

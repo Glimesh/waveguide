@@ -59,8 +59,11 @@ func (s *FSSource) Listen(ctx context.Context) {
 		panic(videoTrackErr)
 	}
 
-	s.control.StartStream(1234)
-	s.control.AddTrack(1234, videoTrack, webrtc.MimeTypeH264)
+	stream, err := s.control.StartStream(1234)
+	if err != nil {
+		panic(err)
+	}
+	stream.AddTrack(videoTrack, webrtc.MimeTypeH264)
 
 	go func() {
 		// Open a H264 file and start reading using our IVFReader

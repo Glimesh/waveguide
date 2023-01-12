@@ -6,6 +6,7 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"os"
+	"os/signal"
 
 	"github.com/Glimesh/waveguide/internal/inputs/fs"
 	"github.com/Glimesh/waveguide/internal/inputs/ftl"
@@ -127,6 +128,15 @@ func main() {
 		output.SetLogger(log.WithFields(logrus.Fields{"output": outputName}))
 		go output.Listen(ctx)
 	}
+
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
+	go func() {
+		<-c
+		log.Info("Exiting Waveguide and cleaning up")
+		ctrl.Shutdown()
+		os.Exit(0)
+	}()
 
 	select {}
 }

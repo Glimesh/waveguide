@@ -4,13 +4,13 @@ type Metadata func(*Stream)
 
 func AudioPacketsMetadata(packets int) Metadata {
 	return func(s *Stream) {
-		s.audioPackets += packets
+		s.totalAudioPackets += packets
 	}
 }
 
 func VideoPacketsMetadata(packets int) Metadata {
 	return func(s *Stream) {
-		s.videoPackets += packets
+		s.totalVideoPackets += packets
 	}
 }
 

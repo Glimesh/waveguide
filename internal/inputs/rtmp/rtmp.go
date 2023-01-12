@@ -176,7 +176,7 @@ func (h *connHandler) OnPublish(ctx *gortmp.StreamContext, timestamp uint32, cmd
 		return err
 	}
 
-	stream, err := h.control.StartStream(h.channelID)
+	h.stream, err = h.control.StartStream(h.channelID)
 	if err != nil {
 		h.log.Error(err)
 		return err
@@ -184,8 +184,7 @@ func (h *connHandler) OnPublish(ctx *gortmp.StreamContext, timestamp uint32, cmd
 
 	h.authenticated = true
 
-	h.stream = stream
-	h.streamID = stream.StreamID
+	h.streamID = h.stream.StreamID
 
 	// Add some meta info to the logger
 	h.log = h.log.WithFields(logrus.Fields{
@@ -193,7 +192,7 @@ func (h *connHandler) OnPublish(ctx *gortmp.StreamContext, timestamp uint32, cmd
 		"stream_id":  h.streamID,
 	})
 
-	h.control.ReportMetadata(h.channelID,
+	h.stream.ReportMetadata(
 		control.ClientVendorNameMetadata("waveguide-rtmp-input"),
 		control.ClientVendorVersionMetadata("0.0.1"),
 	)
@@ -247,8 +246,8 @@ func (h *connHandler) initAudio(clockRate uint32) (err error) {
 	}
 	h.audioDecoder = fdkaac.NewAacDecoder()
 
-	h.control.AddTrack(h.channelID, h.audioTrack, webrtc.MimeTypeOpus)
-	h.control.ReportMetadata(h.channelID, control.AudioCodecMetadata(webrtc.MimeTypeOpus))
+	h.stream.AddTrack(h.audioTrack, webrtc.MimeTypeOpus)
+	h.stream.ReportMetadata(control.AudioCodecMetadata(webrtc.MimeTypeOpus))
 
 	return nil
 }
@@ -309,7 +308,7 @@ func (h *connHandler) OnAudio(timestamp uint32, payload io.Reader) error {
 			}
 		}
 
-		h.control.ReportMetadata(h.channelID, control.AudioPacketsMetadata(len(packets)))
+		h.stream.ReportMetadata(control.AudioPacketsMetadata(len(packets)))
 	}
 
 	return nil
@@ -324,8 +323,8 @@ func (h *connHandler) initVideo(clockRate uint32) (err error) {
 		return err
 	}
 
-	h.control.AddTrack(h.channelID, h.videoTrack, webrtc.MimeTypeH264)
-	h.control.ReportMetadata(h.channelID, control.VideoCodecMetadata(webrtc.MimeTypeH264))
+	h.stream.AddTrack(h.videoTrack, webrtc.MimeTypeH264)
+	h.stream.ReportMetadata(control.VideoCodecMetadata(webrtc.MimeTypeH264))
 
 	return nil
 }
@@ -387,7 +386,7 @@ func (h *connHandler) OnVideo(timestamp uint32, payload io.Reader) error {
 	if video.FrameType == flvtag.FrameTypeKeyFrame {
 		// Save the last full keyframe for anything we may need, eg thumbnails
 		// h.control.ReportMetadata(h.channelID, control.VideoFrameMetadata(outBuf))
-		h.control.ReportLastKeyframe(h.channelID, outBuf)
+		h.stream.ReportLastKeyframe(outBuf)
 	}
 
 	// Likely there's more than one set of RTP packets in this read
@@ -400,7 +399,7 @@ func (h *connHandler) OnVideo(timestamp uint32, payload io.Reader) error {
 		}
 	}
 
-	h.control.ReportMetadata(h.channelID, control.VideoPacketsMetadata(len(packets)))
+	h.stream.ReportMetadata(control.VideoPacketsMetadata(len(packets)))
 
 	return nil
 }
