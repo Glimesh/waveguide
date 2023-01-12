@@ -3,7 +3,6 @@ package control
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"image"
 	"image/jpeg"
 	"time"
@@ -152,13 +151,11 @@ func (mgr *Control) setupHeartbeat(channelID ChannelID) {
 					mgr.log.Error(err)
 				}
 
-				fmt.Println("Sending metadata")
 				err = mgr.sendMetadata(channelID)
 				if err != nil {
 					mgr.log.Error(err)
 				}
 
-				fmt.Println("Sending heartbeat")
 				err = mgr.orchestrator.Heartbeat(channelID)
 				if err != nil {
 					mgr.log.Error(err)
@@ -166,10 +163,7 @@ func (mgr *Control) setupHeartbeat(channelID ChannelID) {
 
 				if err != nil {
 					// Close the stream
-					fmt.Println("Stopping stream due to errors exceeding 5")
-
 					errors += 1
-
 				}
 				if errors > 5 {
 					mgr.log.WithField("channel_id", channelID).Warn("Stopping stream due to excessive metadata errors")
@@ -179,7 +173,6 @@ func (mgr *Control) setupHeartbeat(channelID ChannelID) {
 				}
 
 				errors = 0
-				fmt.Println("end beat")
 
 			case <-mgr.metadataCollectors[channelID]:
 				ticker.Stop()
@@ -221,30 +214,19 @@ func (mgr *Control) sendThumbnail(channelID ChannelID) (err error) {
 		return err
 	}
 
-	// var data []byte
-	// if len(stream.lastKeyframe) > 0 {
-	// 	data = stream.lastKeyframe
-	// } else {
-	// 	// samples := samplebuilder.New(100, &codecs.H264Packet{}, 90000)
-	// 	// for _, packet := range stream.recentVideoPackets {
-	// 	// 	samples.Push(packet)
-	// 	// }
-	// 	// stream.recentVideoPackets = make([]*rtp.Packet, 0)
-
-	// 	// sample := samples.Pop()
-	// 	// if sample == nil {
-	// 	// 	return nil
-	// 	// }
-	// 	// data = sample.Data
-	// }
-	// if len(data) == 0 {
-	// 	return nil
-	// }
-
-	sample := stream.videoSampler.Pop()
-	if sample == nil {
-		mgr.log.WithField("channel_id", channelID).Debug("Video sample is not ready yet")
-		return
+	var data []byte
+	if len(stream.lastKeyframe) > 0 {
+		data = stream.lastKeyframe
+	} else {
+		sample := stream.videoSampler.Pop()
+		if sample == nil {
+			mgr.log.WithField("channel_id", channelID).Debug("Video sample is not ready yet")
+			return
+		}
+		data = sample.Data
+	}
+	if len(data) == 0 {
+		return nil
 	}
 
 	var img image.Image
@@ -253,7 +235,7 @@ func (mgr *Control) sendThumbnail(channelID ChannelID) (err error) {
 		return err
 	}
 	defer h264dec.Close()
-	img, err = h264dec.Decode(sample.Data)
+	img, err = h264dec.Decode(data)
 	if err != nil {
 		return err
 	}
