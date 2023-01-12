@@ -76,12 +76,12 @@ type connHandler struct {
 
 	videoTrack *webrtc.TrackLocalStaticRTP
 	audioTrack *webrtc.TrackLocalStaticRTP
-
-	videoChan chan *rtp.Packet
 }
 
 func (c *connHandler) OnConnect(channelID ftlproto.ChannelID) error {
 	c.channelID = control.ChannelID(channelID)
+
+	c.control.StartStream(c.channelID)
 
 	var err error
 	// Create a video track
@@ -99,6 +99,11 @@ func (c *connHandler) OnConnect(channelID ftlproto.ChannelID) error {
 	c.control.AddTrack(c.channelID, c.videoTrack, webrtc.MimeTypeH264)
 	c.control.AddTrack(c.channelID, c.audioTrack, webrtc.MimeTypeOpus)
 
+	c.control.ReportMetadata(c.channelID,
+		control.AudioCodecMetadata(webrtc.MimeTypeOpus),
+		control.VideoCodecMetadata(webrtc.MimeTypeH264),
+	)
+
 	return nil
 }
 
@@ -112,26 +117,25 @@ func (c *connHandler) OnPlay(metadata ftlproto.FtlConnectionMetadata) error {
 		control.ClientVendorVersionMetadata(metadata.VendorVersion),
 	)
 
-	c.control.StartStream(c.channelID)
-
-	c.control.ReportMetadata(c.channelID, control.AudioCodecMetadata(webrtc.MimeTypeOpus))
-	c.control.ReportMetadata(c.channelID, control.VideoCodecMetadata(webrtc.MimeTypeH264))
-
 	return nil
 }
 
 func (c *connHandler) OnAudio(packet *rtp.Packet) error {
+	err := c.audioTrack.WriteRTP(packet)
+
 	c.control.ReportMetadata(c.channelID, control.AudioPacketsMetadata(len(packet.Payload)))
-	return c.audioTrack.WriteRTP(packet)
+
+	return err
 }
 
 func (c *connHandler) OnVideo(packet *rtp.Packet) error {
-	// Use a lossy channel to send packets to snapshot handler
-	// We don't want to block and queue up old data
-	c.control.ReportVideoPacket(c.channelID, packet)
+	// Write the RTP packet immediately, log after
+	err := c.videoTrack.WriteRTP(packet)
 
+	c.control.ReportVideoPacket(c.channelID, packet)
 	c.control.ReportMetadata(c.channelID, control.VideoPacketsMetadata(len(packet.Payload)))
-	return c.videoTrack.WriteRTP(packet)
+
+	return err
 }
 
 func (c *connHandler) OnClose() {
