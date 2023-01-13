@@ -56,7 +56,9 @@ func main() {
 		unmarshalConfig("service.glimesh", &glimeshConfig)
 		service = glimesh.New(glimeshConfig)
 	}
-	service.SetLogger(log.WithField("service", service.Name()))
+	service.SetLogger(log.WithFields(logrus.Fields{
+		"service": service.Name(),
+	}))
 	service.Connect()
 
 	var orchestrator control.Orchestrator
@@ -68,13 +70,17 @@ func main() {
 		unmarshalConfig("orchestrator.rtrouter", &rtConfig)
 		orchestrator = rt_orchestrator.New(rtConfig, hostname)
 	}
-	orchestrator.SetLogger(log.WithField("orchestrator", service.Name()))
+	orchestrator.SetLogger(log.WithFields(logrus.Fields{
+		"orchestrator": orchestrator.Name(),
+	}))
 	orchestrator.Connect()
 
 	ctrl := control.New(hostname)
 	ctrl.SetService(service)
 	ctrl.SetOrchestrator(orchestrator)
-	ctrl.SetLogger(log)
+	ctrl.SetLogger(log.WithFields(logrus.Fields{
+		"control": "waveguide",
+	}))
 
 	ctx := context.Background()
 	for inputName := range viper.GetStringMap("input") {
@@ -142,10 +148,9 @@ func main() {
 	select {}
 }
 
-func unmarshalConfig(configKey string, config interface{}) error {
+func unmarshalConfig(configKey string, config interface{}) {
 	err := viper.UnmarshalKey(configKey, &config)
 	if err != nil {
-		return err
+		panic(err)
 	}
-	return nil
 }

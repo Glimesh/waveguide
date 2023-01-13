@@ -8,13 +8,10 @@ import (
 type Client struct {
 	hostname string
 
-	config    *Config
-	log       logrus.FieldLogger
-	callbacks Callbacks
+	config *Config
+	log    logrus.FieldLogger
 
 	connected bool
-	// Simple state, one ChannelID to host
-	state map[control.ChannelID]string
 }
 
 type Callbacks struct {

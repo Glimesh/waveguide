@@ -2,7 +2,6 @@ package ftl
 
 import (
 	"context"
-	"io"
 	"net"
 
 	"github.com/Glimesh/waveguide/pkg/control"
@@ -53,7 +52,7 @@ func (s *FTLSource) Listen(ctx context.Context) {
 
 	srv := ftlproto.NewServer(&ftlproto.ServerConfig{
 		Log: s.log,
-		OnConnect: func(conn net.Conn) (io.ReadWriteCloser, *ftlproto.ConnConfig) {
+		OnNewConnect: func(conn net.Conn) (net.Conn, *ftlproto.ConnConfig) {
 			return conn, &ftlproto.ConnConfig{
 				Handler: &connHandler{
 					control: s.control,

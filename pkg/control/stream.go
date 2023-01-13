@@ -82,18 +82,7 @@ func (s *Stream) ReportMetadata(metadatas ...Metadata) error {
 	return nil
 }
 
-// ReportVideoPacket is used to send the control packets that it should later use for
-// image generation or other video needs.
-// Should be refactored to be faster since it's called on every packet.
-func (s *Stream) ReportVideoPacket(packet *rtp.Packet) error {
-	if h264.IsKeyframePart(packet.Payload) {
-		// s.recentVideoPackets = append(s.recentVideoPackets, packet)
-	}
-
-	return nil
-}
-
-// ReportLastKeyframe works similar to ReportVideoPacket, except it's used in situations
+// ReportLastKeyframe works similar to stream.VideoPackets <- packet, except it's used in situations
 // where we are converting from other video formats and we easily know the keyframes.
 func (s *Stream) ReportLastKeyframe(keyframe []byte) error {
 	s.lastKeyframe = keyframe

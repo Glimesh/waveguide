@@ -81,7 +81,6 @@ func (s *Service) StartStream(channelID control.ChannelID) (control.StreamID, er
 			Id graphql.String
 		} `graphql:"startStream(channelId: $id)"`
 	}
-	fmt.Println(fmt.Sprint(channelID))
 	err := s.client.Mutate(context.Background(), &startStreamMutation, map[string]interface{}{
 		"id": graphql.ID(fmt.Sprint(channelID)),
 	})

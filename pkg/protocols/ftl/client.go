@@ -65,7 +65,6 @@ func Dial(targetHostname string, ftlPort int, channelID ChannelID, streamKey []b
 		return conn, err
 	}
 	conn.MediaAddr = mediaAddr
-	fmt.Printf("MediaAddr: %v\n", mediaAddr)
 	conn.MediaConn, err = net.DialUDP("udp", nil, mediaAddr)
 	if err != nil {
 		return conn, err

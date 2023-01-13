@@ -8,7 +8,6 @@ import (
 	"crypto/sha512"
 	"encoding/hex"
 	"fmt"
-	"io"
 	"net"
 	"strconv"
 	"strings"
@@ -38,22 +37,6 @@ type ConnConfig struct {
 }
 
 type Handler interface {
-	// OnServe(conn *Conn)
-	// OnConnect(timestamp uint32, cmd *message.NetConnectionConnect) error
-	// OnCreateStream(timestamp uint32, cmd *message.NetConnectionCreateStream) error
-	// OnReleaseStream(timestamp uint32, cmd *message.NetConnectionReleaseStream) error
-	// OnDeleteStream(timestamp uint32, cmd *message.NetStreamDeleteStream) error
-	// OnPublish(ctx *StreamContext, timestamp uint32, cmd *message.NetStreamPublish) error
-	// OnPlay(ctx *StreamContext, timestamp uint32, cmd *message.NetStreamPlay) error
-	// OnFCPublish(timestamp uint32, cmd *message.NetStreamFCPublish) error
-	// OnFCUnpublish(timestamp uint32, cmd *message.NetStreamFCUnpublish) error
-	// OnSetDataFrame(timestamp uint32, data *message.NetStreamSetDataFrame) error
-	// OnAudio(timestamp uint32, payload io.Reader) error
-	// OnVideo(timestamp uint32, payload io.Reader) error
-	// OnUnknownMessage(timestamp uint32, msg message.Message) error
-	// OnUnknownCommandMessage(timestamp uint32, cmd *message.CommandMessage) error
-	// OnUnknownDataMessage(timestamp uint32, data *message.DataMessage) error
-
 	GetHmacKey() (string, error)
 
 	OnConnect(ChannelID) error
@@ -64,8 +47,10 @@ type Handler interface {
 }
 
 type ServerConfig struct {
-	Log       logrus.FieldLogger
-	OnConnect func(net.Conn) (io.ReadWriteCloser, *ConnConfig)
+	Log logrus.FieldLogger
+	// OnNewConnect is triggered on any connect to the FTL port, however it's not a
+	// qualified FTL client until Handler.OnConnect is called.
+	OnNewConnect func(net.Conn) (net.Conn, *ConnConfig)
 }
 
 func NewServer(config *ServerConfig) *Server {
@@ -80,8 +65,6 @@ type Server struct {
 	log    logrus.FieldLogger
 
 	listener net.Listener
-	// mu       sync.Mutex
-	// doneCh   chan struct{}
 }
 
 func (srv *Server) Serve(listener net.Listener) error {
@@ -90,26 +73,47 @@ func (srv *Server) Serve(listener net.Listener) error {
 	for {
 		// Each client
 		socket, err := listener.Accept()
+		if err != nil {
+			srv.log.Error(err)
+			continue
+		}
 
-		_, connConfig := srv.config.OnConnect(socket)
+		conn, clientConfig := srv.config.OnNewConnect(socket)
 
 		ftlConn := FtlConnection{
 			log:            srv.log,
-			transport:      socket,
-			handler:        connConfig.Handler,
+			transport:      conn,
+			handler:        clientConfig.Handler,
 			connected:      true,
 			mediaConnected: false,
 			Metadata:       &FtlConnectionMetadata{},
 		}
 
-		if err != nil {
-			return err
-		}
-
 		go func() {
 			for {
-				if err := ftlConn.eternalRead(); err != nil {
-					ftlConn.log.Error(err)
+				// A previous read could have disconnected us already
+				if !ftlConn.connected {
+					return
+				}
+
+				scanner := bufio.NewScanner(ftlConn.transport)
+				scanner.Split(scanCRLF)
+
+				for scanner.Scan() {
+					payload := scanner.Text()
+
+					if payload == "" {
+						continue
+					}
+
+					if err := ftlConn.ProcessCommand(payload); err != nil {
+						ftlConn.log.Error(err)
+						ftlConn.Close()
+						return
+					}
+				}
+				if err := scanner.Err(); err != nil {
+					ftlConn.log.Errorf("Invalid input: %s", err)
 					ftlConn.Close()
 					return
 				}
@@ -162,37 +166,9 @@ type FtlConnectionMetadata struct {
 	AudioIngestSsrc  uint
 }
 
-func (conn *FtlConnection) eternalRead() error {
-	// A previous read could have disconnected us already
-	if !conn.connected {
-		return ErrClosed
-	}
-
-	scanner := bufio.NewScanner(conn.transport)
-	scanner.Split(scanCRLF)
-
-	for scanner.Scan() {
-		payload := scanner.Text()
-
-		// I'm not processing something correctly here
-		if payload == "" {
-			continue
-		}
-
-		if err := conn.ProcessCommand(payload); err != nil {
-			return err
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		conn.log.Errorf("Invalid input: %s", err)
-	}
-
-	return nil
-}
-
 func (conn *FtlConnection) SendMessage(message string) error {
 	message = message + "\n"
-	conn.log.Debugf("SEND: %q", message)
+	conn.log.Debugf("FTL SEND: %s", message)
 	_, err := conn.transport.Write([]byte(message))
 	return err
 }
@@ -212,7 +188,7 @@ func (conn *FtlConnection) Close() error {
 }
 
 func (conn *FtlConnection) ProcessCommand(command string) error {
-	conn.log.Debugf("RECV: %q", command)
+	conn.log.Debugf("FTL RECV: %s", command)
 	if command == "HMAC" {
 		return conn.processHmacCommand()
 	} else if strings.Contains(command, "DISCONNECT") {
@@ -232,10 +208,6 @@ func (conn *FtlConnection) ProcessCommand(command string) error {
 }
 
 func (conn *FtlConnection) processHmacCommand() error {
-	// hmacKey, err := conn.handler.GetHmacKey()
-	// if err != nil {
-	// 	return err
-	// }
 	conn.hmacPayload = make([]byte, hmacPayloadSize)
 	rand.Read(conn.hmacPayload)
 
@@ -427,46 +399,41 @@ func (conn *FtlConnection) listenForMedia() error {
 
 	go func() {
 		for {
-			if err := conn.eternalMediaRead(); err != nil {
+			if !conn.mediaConnected {
+				return
+			}
+
+			inboundRTPPacket := make([]byte, packetMtu)
+
+			n, _, err := conn.mediaTransport.ReadFrom(inboundRTPPacket)
+			if err != nil {
 				conn.log.Error(err)
 				conn.Close()
 				return
 			}
+			packet := &rtp.Packet{}
+			if err = packet.Unmarshal(inboundRTPPacket[:n]); err != nil {
+				conn.log.Error(errors.Wrap(ErrRead, err.Error()))
+				conn.Close()
+				return
+			}
+
+			// The FTL client actually tells us what PayloadType to use for these: VideoPayloadType & AudioPayloadType
+			if packet.Header.PayloadType == conn.Metadata.VideoPayloadType {
+				if err := conn.handler.OnVideo(packet); err != nil {
+					conn.log.Error(errors.Wrap(ErrWrite, err.Error()))
+					conn.Close()
+					return
+				}
+			} else if packet.Header.PayloadType == conn.Metadata.AudioPayloadType {
+				if err := conn.handler.OnAudio(packet); err != nil {
+					conn.log.Error(errors.Wrap(ErrWrite, err.Error()))
+					conn.Close()
+					return
+				}
+			}
 		}
 	}()
-
-	return nil
-}
-
-func (conn *FtlConnection) eternalMediaRead() error {
-	if !conn.mediaConnected {
-		return ErrClosed
-	}
-
-	inboundRTPPacket := make([]byte, packetMtu)
-
-	n, _, err := conn.mediaTransport.ReadFrom(inboundRTPPacket)
-	if err != nil {
-		return errors.Wrap(ErrRead, err.Error())
-	}
-	packet := &rtp.Packet{}
-	if err = packet.Unmarshal(inboundRTPPacket[:n]); err != nil {
-		// fmt.Printf("Error unmarshaling RTP packet %s\n", err)
-		return errors.Wrap(ErrRead, err.Error())
-	}
-
-	// The FTL client actually tells us what PayloadType to use for these: VideoPayloadType & AudioPayloadType
-	if packet.Header.PayloadType == conn.Metadata.VideoPayloadType {
-		if err := conn.handler.OnVideo(packet); err != nil {
-			return errors.Wrap(ErrWrite, err.Error())
-		}
-		// conn.readVideoBytes = conn.readVideoBytes + n
-	} else if packet.Header.PayloadType == conn.Metadata.AudioPayloadType {
-		if err := conn.handler.OnAudio(packet); err != nil {
-			return errors.Wrap(ErrWrite, err.Error())
-		}
-		// conn.readAudioBytes = conn.readAudioBytes + n
-	}
 
 	return nil
 }
