@@ -19,6 +19,8 @@ type WHIPSource struct {
 	log     logrus.FieldLogger
 	config  WHIPSourceConfig
 	control *control.Control
+
+	peerConnections []*webrtc.PeerConnection
 }
 
 type WHIPSourceConfig struct {
@@ -58,6 +60,11 @@ func (s *WHIPSource) Listen(ctx context.Context) {
 			return
 		}
 
+		if strings.HasPrefix(streamKey, "Bearer ") {
+			// Remove Bearer info, will need to research why this is being sent.
+			streamKey = strings.Replace(streamKey, "Bearer ", "", 1)
+		}
+
 		split := strings.Split(streamKey, "-")
 		if len(split) > 1 {
 			// Filter out the Channel ID prefix from the stream key
@@ -78,7 +85,7 @@ func (s *WHIPSource) Listen(ctx context.Context) {
 		}
 
 		offer, err := io.ReadAll(r.Body)
-		if err != nil {
+		if err != nil || len(offer) == 0 {
 			s.log.Error(err)
 			errWrongParams(w, r)
 			return
@@ -90,6 +97,9 @@ func (s *WHIPSource) Listen(ctx context.Context) {
 			errCustom(w, r, "Problem starting the stream")
 			return
 		}
+		defer func() {
+			s.control.StopStream(channelID)
+		}()
 
 		peerConnection, err := webrtc.NewPeerConnection(webrtc.Configuration{})
 		if err != nil {
@@ -150,6 +160,8 @@ func (s *WHIPSource) Listen(ctx context.Context) {
 			}
 		})
 
+		fmt.Println(string(offer))
+
 		if err := peerConnection.SetRemoteDescription(webrtc.SessionDescription{
 			SDP:  string(offer),
 			Type: webrtc.SDPTypeOffer,
@@ -173,6 +185,8 @@ func (s *WHIPSource) Listen(ctx context.Context) {
 		}
 
 		<-gatherComplete
+
+		s.peerConnections = append(s.peerConnections, peerConnection)
 
 		fmt.Fprint(w, peerConnection.LocalDescription().SDP)
 	})

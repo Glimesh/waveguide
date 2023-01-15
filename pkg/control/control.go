@@ -131,6 +131,7 @@ func (mgr *Control) StopStream(channelID ChannelID) (err error) {
 	if err != nil {
 		return err
 	}
+	mgr.log.Infof("Stopping stream for %s", channelID)
 
 	stream.stopHeartbeat <- true
 	mgr.metadataCollectors[channelID] <- true
