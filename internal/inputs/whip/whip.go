@@ -2,25 +2,29 @@ package whip
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"path"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/Glimesh/waveguide/pkg/control"
 	"github.com/pion/webrtc/v3"
 	"github.com/sirupsen/logrus"
 )
 
+const PC_TIMEOUT = time.Minute * 5
+
 type WHIPSource struct {
 	log     logrus.FieldLogger
 	config  WHIPSourceConfig
 	control *control.Control
 
-	peerConnections []*webrtc.PeerConnection
+	peerConnectionsMutex sync.RWMutex
+	peerConnections      map[control.ChannelID]*webrtc.PeerConnection
 }
 
 type WHIPSourceConfig struct {
@@ -32,7 +36,9 @@ type WHIPSourceConfig struct {
 
 func New(config WHIPSourceConfig) *WHIPSource {
 	return &WHIPSource{
-		config: config,
+		config:               config,
+		peerConnectionsMutex: sync.RWMutex{},
+		peerConnections:      make(map[control.ChannelID]*webrtc.PeerConnection),
 	}
 }
 
@@ -78,6 +84,17 @@ func (s *WHIPSource) Listen(ctx context.Context) {
 		}
 		channelID := control.ChannelID(intChannelID)
 
+		if r.Method == http.MethodDelete {
+			// The client wants to end the stream
+			s.cleanupPeerConnection(channelID)
+			s.control.StopStream(channelID)
+
+			w.WriteHeader(http.StatusOK)
+
+			fmt.Fprintf(w, "")
+			return
+		}
+
 		err = s.control.Authenticate(channelID, control.StreamKey(streamKey))
 		if err != nil {
 			errUnauthorized(w, r)
@@ -97,9 +114,8 @@ func (s *WHIPSource) Listen(ctx context.Context) {
 			errCustom(w, r, "Problem starting the stream")
 			return
 		}
-		defer func() {
-			s.control.StopStream(channelID)
-		}()
+
+		ttl := time.Now().Add(PC_TIMEOUT)
 
 		peerConnection, err := webrtc.NewPeerConnection(webrtc.Configuration{})
 		if err != nil {
@@ -108,45 +124,64 @@ func (s *WHIPSource) Listen(ctx context.Context) {
 			return
 		}
 
-		audioTrack, videoTrack, err := createTracksForStream(streamKey)
+		videoTrack, err := webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264}, "video", "pion")
 		if err != nil {
 			s.log.Error(err)
-			errWrongParams(w, r)
 			return
 		}
 
-		stream.AddTrack(audioTrack, webrtc.MimeTypeOpus)
+		audioTrack, err := webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus}, "audio", "pion")
+		if err != nil {
+			s.log.Error(err)
+			return
+		}
+
 		stream.AddTrack(videoTrack, webrtc.MimeTypeH264)
+		stream.AddTrack(audioTrack, webrtc.MimeTypeOpus)
+
+		stream.ReportMetadata(
+			control.AudioCodecMetadata(webrtc.MimeTypeOpus),
+			control.VideoCodecMetadata(webrtc.MimeTypeH264),
+			control.ClientVendorNameMetadata("waveguide-janus-input"),
+			control.ClientVendorVersionMetadata("0.0.1"),
+		)
+
+		if _, err = peerConnection.AddTransceiverFromKind(webrtc.RTPCodecTypeAudio, webrtc.RTPTransceiverInit{
+			Direction: webrtc.RTPTransceiverDirectionRecvonly}); err != nil {
+
+			s.log.Error(err)
+			return
+		} else if _, err = peerConnection.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo, webrtc.RTPTransceiverInit{
+			Direction: webrtc.RTPTransceiverDirectionRecvonly}); err != nil {
+			s.log.Error(err)
+			return
+		}
 
 		peerConnection.OnTrack(func(remoteTrack *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
-			var localTrack *webrtc.TrackLocalStaticRTP
-			isVideo := false
-			if strings.HasPrefix(remoteTrack.Codec().RTPCodecCapability.MimeType, "audio") {
-				localTrack = audioTrack
-			} else {
-				localTrack = videoTrack
-				isVideo = true
-			}
+			codec := remoteTrack.Codec()
 
-			rtpBuf := make([]byte, 1500)
-			for {
-				rtpRead, _, readErr := remoteTrack.Read(rtpBuf)
-				switch {
-				case errors.Is(readErr, io.EOF):
-					return
-				case readErr != nil:
-					s.log.Info(readErr)
-					return
+			if codec.MimeType == webrtc.MimeTypeOpus {
+				s.log.Info("Got Opus track, sending to audio track")
+				for {
+					p, _, err := remoteTrack.ReadRTP()
+					if err != nil {
+						s.log.Error(err)
+						return
+					}
+					audioTrack.WriteRTP(p)
+					stream.ReportMetadata(control.AudioPacketsMetadata(len(p.Payload)))
 				}
-
-				if _, writeErr := localTrack.Write(rtpBuf[:rtpRead]); writeErr != nil && !errors.Is(writeErr, io.ErrClosedPipe) {
-					s.log.Info(writeErr)
-					return
-				}
-				if isVideo {
-					stream.ReportMetadata(control.VideoPacketsMetadata(rtpRead))
-				} else {
-					stream.ReportMetadata(control.AudioPacketsMetadata(rtpRead))
+			} else if codec.MimeType == webrtc.MimeTypeH264 {
+				s.log.Info("Got H264 track, sending to video track")
+				for {
+					p, _, err := remoteTrack.ReadRTP()
+					if err != nil {
+						s.log.Error(err)
+						return
+					}
+					videoTrack.WriteRTP(p)
+					stream.VideoPackets <- p
+					stream.ReportMetadata(control.VideoPacketsMetadata(len(p.Payload)))
 				}
 			}
 		})
@@ -160,7 +195,25 @@ func (s *WHIPSource) Listen(ctx context.Context) {
 			}
 		})
 
-		fmt.Println(string(offer))
+		peerConnection.OnConnectionStateChange(func(pcs webrtc.PeerConnectionState) {
+			shouldClose := false
+			switch pcs {
+			case webrtc.PeerConnectionStateClosed:
+				shouldClose = true
+			case webrtc.PeerConnectionStateDisconnected:
+				shouldClose = true
+			case webrtc.PeerConnectionStateFailed:
+				shouldClose = true
+			}
+
+			if shouldClose {
+				s.cleanupPeerConnection(channelID)
+				s.control.StopStream(channelID)
+			}
+		})
+
+		s.addPeerConnection(channelID, peerConnection)
+		s.startPeerConnectionTimeout(channelID)
 
 		if err := peerConnection.SetRemoteDescription(webrtc.SessionDescription{
 			SDP:  string(offer),
@@ -186,24 +239,47 @@ func (s *WHIPSource) Listen(ctx context.Context) {
 
 		<-gatherComplete
 
-		s.peerConnections = append(s.peerConnections, peerConnection)
+		w.Header().Add("Access-Control-Expose-Headers", "expire")
+		w.Header().Add("Content-Type", "application/sdp")
+		w.Header().Add("Expire", ttl.Format(http.TimeFormat))
 
 		fmt.Fprint(w, peerConnection.LocalDescription().SDP)
 	})
 }
 
-func createTracksForStream(streamKey string) (*webrtc.TrackLocalStaticRTP, *webrtc.TrackLocalStaticRTP, error) {
-	videoTrack, err := webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264}, "video", "pion")
-	if err != nil {
-		return nil, nil, err
+func (s *WHIPSource) addPeerConnection(channelID control.ChannelID, pc *webrtc.PeerConnection) {
+	s.peerConnectionsMutex.Lock()
+	defer s.peerConnectionsMutex.Unlock()
+
+	s.peerConnections[channelID] = pc
+}
+func (s *WHIPSource) getPeerConnection(channelID control.ChannelID) (*webrtc.PeerConnection, bool) {
+	s.peerConnectionsMutex.RLock()
+	defer s.peerConnectionsMutex.RUnlock()
+
+	val, ok := s.peerConnections[channelID]
+	return val, ok
+}
+func (s *WHIPSource) startPeerConnectionTimeout(channelID control.ChannelID) {
+	go func() {
+		time.Sleep(PC_TIMEOUT)
+
+		pc, ok := s.getPeerConnection(channelID)
+		if ok && pc.ConnectionState() != webrtc.PeerConnectionStateConnected {
+			s.log.Infof("Peer %s took too long to connect, rejecting peer.", channelID)
+			s.cleanupPeerConnection(channelID)
+		}
+	}()
+}
+func (s *WHIPSource) cleanupPeerConnection(channelID control.ChannelID) {
+	s.peerConnectionsMutex.Lock()
+	defer s.peerConnectionsMutex.Unlock()
+
+	if pc, ok := s.peerConnections[channelID]; ok {
+		pc.Close()
 	}
 
-	audioTrack, err := webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus}, "audio", "pion")
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return videoTrack, audioTrack, nil
+	delete(s.peerConnections, channelID)
 }
 
 func errCustom(w http.ResponseWriter, r *http.Request, message string) {
@@ -220,9 +296,4 @@ func errWrongParams(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusBadRequest)
 	w.Header().Set("Content-Type", "plain/text")
 	w.Write([]byte("Invalid Parameters"))
-}
-func errNotFound(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotFound)
-	w.Header().Set("Content-Type", "plain/text")
-	w.Write([]byte("Not found"))
 }
