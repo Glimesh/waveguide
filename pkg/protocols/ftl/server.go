@@ -30,8 +30,9 @@ const (
 	//packetMtu = 1500 // 100 ms gtg latency - 144ms on clock
 	//packetMtu = 1460 // UDP MTU
 	// packetMtu = 1392
-	packetMtu = 1600
+	// packetMtu = 1600
 	// FTL-SDK recommends 1392 MTU
+	packetMtu = 1392
 
 	MaxLineLenBytes  = 1024
 	ReadWriteTimeout = time.Minute
@@ -425,6 +426,12 @@ func (conn *FtlConnection) listenForMedia() error {
 				conn.Close()
 				return
 			}
+			if n < 12 {
+				// This packet is too small to have an RTP header.
+				conn.log.Errorf("Channel %s received non-RTP packet of size %d (< 12 bytes). Discarding...", conn.channelID, n)
+				continue
+			}
+
 			packet := &rtp.Packet{}
 			if err = packet.Unmarshal(inboundRTPPacket[:n]); err != nil {
 				conn.log.Error(errors.Wrap(ErrRead, err.Error()))
