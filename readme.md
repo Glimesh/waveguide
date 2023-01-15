@@ -3,9 +3,12 @@ Waveguide is a _revolutionary_ live streaming facilitation server. Built around 
 
 Waveguide is a very early work in progress.
 
-## Todo
+### macOS Development
+```
+brew install opusfile fdk-aac
+```
 
-- Setup Inputs to send control regular metadata info
-- Setup control to aggregate that metadata into a Service UpdateStreamMetadata call
-- Setup Inputs to store some video bytes in a frame buffer 
-- Setup control to take a video frame buffer and convert it into a Service SendJpegPreviewImage call
+### Ubuntu / Linux Development
+```
+apt install -y pkg-config build-essential libopusfile-dev libfdk-aac-dev libavutil-dev libavcodec-dev libswscale-dev
+```
