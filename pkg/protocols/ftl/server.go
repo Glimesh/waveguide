@@ -413,12 +413,12 @@ func (conn *FtlConnection) listenForMedia() error {
 	conn.log.Infof("Listening for UDP connections on: %d", conn.assignedMediaPort)
 
 	go func() {
+		inboundRTPPacket := make([]byte, packetMtu)
+
 		for {
 			if !conn.mediaConnected {
 				return
 			}
-
-			inboundRTPPacket := make([]byte, packetMtu)
 
 			n, _, err := conn.mediaTransport.ReadFrom(inboundRTPPacket)
 			if err != nil {
@@ -426,17 +426,19 @@ func (conn *FtlConnection) listenForMedia() error {
 				conn.Close()
 				return
 			}
-			if n < 12 {
-				// This packet is too small to have an RTP header.
-				conn.log.Errorf("Channel %s received non-RTP packet of size %d (< 12 bytes). Discarding...", conn.channelID, n)
-				continue
-			}
+			// if len(inboundRTPPacket) < 12 {
+			// 	// This packet is too small to have an RTP header.
+			// 	conn.log.Errorf("Channel %s received non-RTP packet of size %d (< 12 bytes). Discarding...", conn.channelID, n)
+			// 	continue
+			// }
 
 			packet := &rtp.Packet{}
 			if err = packet.Unmarshal(inboundRTPPacket[:n]); err != nil {
-				conn.log.Error(errors.Wrap(ErrRead, err.Error()))
-				conn.Close()
-				return
+				// this is probably wrong... but... let's do it anyway.
+				continue
+				// conn.log.Error(errors.Wrap(ErrRead, err.Error()))
+				// conn.Close()
+				// return
 			}
 
 			// The FTL client actually tells us what PayloadType to use for these: VideoPayloadType & AudioPayloadType
