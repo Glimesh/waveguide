@@ -5,6 +5,7 @@ import (
 	"errors"
 	"image"
 	"image/jpeg"
+	"net/http"
 	"time"
 
 	"github.com/Glimesh/waveguide/pkg/h264"
@@ -27,14 +28,28 @@ type Control struct {
 	orchestrator       Orchestrator
 	streams            map[ChannelID]*Stream
 	metadataCollectors map[ChannelID]chan bool
+
+	config Config
+
+	httpMux *http.ServeMux
 }
 
-func New(hostname string) *Control {
+type Config struct {
+	Hostname       string
+	HttpServerType string `mapstructure:"http_server_type"`
+	HttpAddress    string `mapstructure:"http_address"`
+	Https          bool
+	HttpsHostname  string `mapstructure:"https_hostname"`
+	HttpsCert      string `mapstructure:"https_cert"`
+	HttpsKey       string `mapstructure:"https_key"`
+}
+
+func New(config Config) *Control {
 	return &Control{
-		// orchestrator: orchestrator,
-		// service:         service,
+		config:             config,
 		streams:            make(map[ChannelID]*Stream),
 		metadataCollectors: make(map[ChannelID]chan bool),
+		httpMux:            http.NewServeMux(),
 	}
 }
 

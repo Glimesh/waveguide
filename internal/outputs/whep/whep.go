@@ -2,7 +2,6 @@ package whep
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"html/template"
 	"io"
@@ -16,7 +15,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/pion/webrtc/v3"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/crypto/acme/autocert"
 )
 
 const PC_TIMEOUT = time.Minute * 5
@@ -57,15 +55,13 @@ func (s *WHEPServer) SetLogger(log logrus.FieldLogger) {
 }
 
 func (s *WHEPServer) Listen(ctx context.Context) {
-	s.log.Infof("Starting WHEP Server on %s", s.config.Address)
-
-	mux := http.NewServeMux()
+	s.log.Infof("Registering WHEP http endpoints")
 
 	// Todo: Find better way of fetching this path
 	streamTemplate := template.Must(template.ParseFiles("internal/outputs/whep/public/stream.html"))
 
 	// Player (Nothing) => Endpoint (Offer) => Player (Answer)
-	mux.HandleFunc("/whep/endpoint/", func(w http.ResponseWriter, r *http.Request) {
+	s.control.RegisterHandleFunc("/whep/endpoint/", func(w http.ResponseWriter, r *http.Request) {
 		strChannelID := path.Base(r.URL.Path)
 
 		w.Header().Add("Access-Control-Allow-Origin", "*")
@@ -150,7 +146,7 @@ func (s *WHEPServer) Listen(ctx context.Context) {
 	// Player (Nothing) => Endpoint (Offer) => Player (Answer)
 	// This function actually finishes the SDP handshake
 	// After this the WebRTC connection should be established
-	mux.HandleFunc("/whep/resource/", func(w http.ResponseWriter, r *http.Request) {
+	s.control.RegisterHandleFunc("/whep/resource/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Add("Access-Control-Allow-Origin", "*")
 		if r.Method == http.MethodOptions {
 			w.Header().Add("Access-Control-Allow-Methods", "PATCH")
@@ -194,7 +190,7 @@ func (s *WHEPServer) Listen(ctx context.Context) {
 		fmt.Fprintf(w, "")
 	})
 
-	mux.HandleFunc("/stream/", func(w http.ResponseWriter, r *http.Request) {
+	s.control.RegisterHandleFunc("/stream/", func(w http.ResponseWriter, r *http.Request) {
 		channelID := path.Base(r.URL.Path)
 		data := struct {
 			ChannelID   string
@@ -203,45 +199,6 @@ func (s *WHEPServer) Listen(ctx context.Context) {
 
 		streamTemplate.Execute(w, data)
 	})
-
-	switch s.config.Server {
-	case "acme":
-		s.log.Fatal(http.Serve(autocert.NewListener(s.config.HttpsHostname), logRequest(s.log, mux)))
-	case "https":
-		s.log.Fatal(httpsServer(s.config.Address, s.config.HttpsCert, s.config.HttpsKey, s.log, mux))
-	case "http":
-		s.log.Fatal(httpServer(s.config.Address, s.log, mux))
-	default:
-		s.log.Fatalf("unknown WHEP server option %s", s.config.Server)
-	}
-}
-
-func httpServer(address string, log logrus.FieldLogger, mux *http.ServeMux) error {
-	srv := &http.Server{
-		Addr:    address,
-		Handler: logRequest(log, mux),
-	}
-	return srv.ListenAndServe()
-}
-func httpsServer(address, cert, key string, log logrus.FieldLogger, mux *http.ServeMux) error {
-	cfg := &tls.Config{
-		MinVersion:               tls.VersionTLS12,
-		CurvePreferences:         []tls.CurveID{tls.CurveP521, tls.CurveP384, tls.CurveP256},
-		PreferServerCipherSuites: true,
-		CipherSuites: []uint16{
-			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-			tls.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
-			tls.TLS_RSA_WITH_AES_256_GCM_SHA384,
-			tls.TLS_RSA_WITH_AES_256_CBC_SHA,
-		},
-	}
-	srv := &http.Server{
-		Addr:         address,
-		Handler:      logRequest(log, mux),
-		TLSConfig:    cfg,
-		TLSNextProto: make(map[string]func(*http.Server, *tls.Conn, http.Handler), 0),
-	}
-	return srv.ListenAndServeTLS(cert, key)
 }
 
 func (s *WHEPServer) addPeerConnection(uuid string, pc *webrtc.PeerConnection) {

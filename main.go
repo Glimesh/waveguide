@@ -12,6 +12,7 @@ import (
 	"github.com/Glimesh/waveguide/internal/inputs/ftl"
 	"github.com/Glimesh/waveguide/internal/inputs/janus"
 	"github.com/Glimesh/waveguide/internal/inputs/rtmp"
+	"github.com/Glimesh/waveguide/internal/inputs/whip"
 	"github.com/Glimesh/waveguide/internal/outputs/hls"
 	"github.com/Glimesh/waveguide/internal/outputs/whep"
 	"github.com/Glimesh/waveguide/pkg/control"
@@ -75,7 +76,9 @@ func main() {
 	}))
 	orchestrator.Connect()
 
-	ctrl := control.New(hostname)
+	var controlConfig control.Config
+	unmarshalConfig("control", &controlConfig)
+	ctrl := control.New(controlConfig)
 	ctrl.SetService(service)
 	ctrl.SetOrchestrator(orchestrator)
 	ctrl.SetLogger(log.WithFields(logrus.Fields{
@@ -106,6 +109,10 @@ func main() {
 			var ftlConfig ftl.FTLSourceConfig
 			unmarshalConfig(configKey, &ftlConfig)
 			input = ftl.New(ftlConfig)
+		case "whip":
+			var whipConfig whip.WHIPSourceConfig
+			unmarshalConfig(configKey, whipConfig)
+			input = whip.New(whipConfig)
 		default:
 			log.Fatalf("could not find input type %s", inputType)
 		}
@@ -135,6 +142,8 @@ func main() {
 		output.SetLogger(log.WithFields(logrus.Fields{"output": outputName}))
 		go output.Listen(ctx)
 	}
+
+	ctrl.StartHTTPServer()
 
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)

@@ -8,9 +8,11 @@ import (
 	"crypto/sha512"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/pion/rtp"
 	"github.com/pkg/errors"
@@ -30,6 +32,9 @@ const (
 	// packetMtu = 1392
 	packetMtu = 1600
 	// FTL-SDK recommends 1392 MTU
+
+	MaxLineLenBytes  = 1024
+	ReadWriteTimeout = time.Minute
 )
 
 type ConnConfig struct {
@@ -90,33 +95,42 @@ func (srv *Server) Serve(listener net.Listener) error {
 		}
 
 		go func() {
-			for {
+			lim := &io.LimitedReader{
+				R: ftlConn.transport,
+				N: MaxLineLenBytes,
+			}
+
+			scanner := bufio.NewScanner(lim)
+			scanner.Split(scanCRLF)
+
+			_ = ftlConn.transport.SetReadDeadline(time.Now().Add(ReadWriteTimeout))
+
+			for scanner.Scan() {
 				// A previous read could have disconnected us already
 				if !ftlConn.connected {
 					return
 				}
 
-				scanner := bufio.NewScanner(ftlConn.transport)
-				scanner.Split(scanCRLF)
-
-				for scanner.Scan() {
-					payload := scanner.Text()
-
-					if payload == "" {
-						continue
-					}
-
-					if err := ftlConn.ProcessCommand(payload); err != nil {
-						ftlConn.log.Error(err)
-						ftlConn.Close()
-						return
-					}
+				payload := scanner.Text()
+				if payload == "" {
+					continue
 				}
-				if err := scanner.Err(); err != nil {
-					ftlConn.log.Errorf("Invalid input: %s", err)
+
+				if err := ftlConn.ProcessCommand(payload); err != nil {
+					ftlConn.log.Error(err)
 					ftlConn.Close()
 					return
 				}
+
+				// reset the number of bytes remaining in the LimitReader
+				lim.N = MaxLineLenBytes
+				// reset the read deadline
+				_ = conn.SetReadDeadline(time.Now().Add(ReadWriteTimeout))
+			}
+			if err := scanner.Err(); err != nil {
+				ftlConn.log.Errorf("Invalid input: %s", err)
+				ftlConn.Close()
+				return
 			}
 		}()
 	}
