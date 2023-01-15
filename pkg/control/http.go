@@ -47,7 +47,7 @@ func (ctrl *Control) RegisterHandleFunc(pattern string, handler func(http.Respon
 func (ctrl *Control) HttpServerUrl() string {
 	var protocol string
 	var host string
-	if ctrl.config.Https {
+	if ctrl.config.HttpServerType == "acme" || ctrl.config.HttpServerType == "https" {
 		protocol = "https"
 		host = ctrl.config.HttpsHostname
 	} else {
