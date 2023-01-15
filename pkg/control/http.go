@@ -2,6 +2,7 @@ package control
 
 import (
 	"crypto/tls"
+	"fmt"
 	"net/http"
 
 	"github.com/sirupsen/logrus"
@@ -41,6 +42,20 @@ func (ctrl *Control) StartHTTPServer() {
 
 func (ctrl *Control) RegisterHandleFunc(pattern string, handler func(http.ResponseWriter, *http.Request)) {
 	ctrl.httpMux.HandleFunc(pattern, handler)
+}
+
+func (ctrl *Control) HttpServerUrl() string {
+	var protocol string
+	var host string
+	if ctrl.config.Https {
+		protocol = "https"
+		host = ctrl.config.HttpsHostname
+	} else {
+		protocol = "http"
+		host = ctrl.config.HttpAddress
+	}
+
+	return fmt.Sprintf("%s://%s", protocol, host)
 }
 
 func httpServer(address string, log logrus.FieldLogger, mux *http.ServeMux) error {

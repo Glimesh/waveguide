@@ -236,24 +236,11 @@ func (s *WHEPServer) cleanupPeerConnection(uuid string) {
 	delete(s.peerConnections, uuid)
 }
 
-func (s *WHEPServer) serverUrl() string {
-	var protocol string
-	var host string
-	if s.config.Https {
-		protocol = "https"
-		host = s.config.HttpsHostname
-	} else {
-		protocol = "http"
-		host = s.config.Address
-	}
-
-	return fmt.Sprintf("%s://%s", protocol, host)
-}
 func (s *WHEPServer) endpointUrl(channelID string) string {
-	return fmt.Sprintf("%s/whep/endpoint/%s", s.serverUrl(), channelID)
+	return fmt.Sprintf("%s/whep/endpoint/%s", s.control.HttpServerUrl(), channelID)
 }
 func (s *WHEPServer) resourceUrl(uuid string) string {
-	return fmt.Sprintf("%s/whep/resource/%s", s.serverUrl(), uuid)
+	return fmt.Sprintf("%s/whep/resource/%s", s.control.HttpServerUrl(), uuid)
 }
 
 func logRequest(log logrus.FieldLogger, handler http.Handler) http.Handler {
