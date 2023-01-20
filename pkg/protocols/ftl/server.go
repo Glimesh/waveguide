@@ -435,6 +435,7 @@ func (conn *FtlConnection) listenForMedia() error {
 			packet := &rtp.Packet{}
 			if err = packet.Unmarshal(inboundRTPPacket[:n]); err != nil {
 				// this is probably wrong... but... let's do it anyway.
+				conn.log.Warn(err)
 				continue
 				// conn.log.Error(errors.Wrap(ErrRead, err.Error()))
 				// conn.Close()
