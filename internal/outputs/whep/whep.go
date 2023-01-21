@@ -111,6 +111,7 @@ func (s *WHEPServer) Listen(ctx context.Context) {
 		for _, track := range tracks {
 			rtpSender, _ := peerConnection.AddTrack(track.Track)
 			go func() {
+				peerLog := s.log.WithField("peer", peerID)
 				for {
 					rtcpPackets, _, rtcpErr := rtpSender.ReadRTCP()
 					if rtcpErr != nil {
@@ -126,11 +127,11 @@ func (s *WHEPServer) Listen(ctx context.Context) {
 							for _, i := range report.Reports {
 								out += fmt.Sprintf("\t%x\t%d/%d\t%d\n", i.SSRC, i.FractionLost, i.TotalLost, i.LastSequenceNumber)
 							}
-							s.log.Debug(out)
+							peerLog.Debugf(out)
 						default:
 
 							if stringer, canString := r.(fmt.Stringer); canString {
-								s.log.Debugf("Unknown Received RTCP Packet: %v", stringer.String())
+								peerLog.Debugf("Unknown Received RTCP Packet: %v", stringer.String())
 							}
 						}
 					}
