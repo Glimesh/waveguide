@@ -13,6 +13,7 @@ import (
 
 	"github.com/Glimesh/waveguide/pkg/control"
 	"github.com/google/uuid"
+	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v3"
 	"github.com/sirupsen/logrus"
 )
@@ -108,7 +109,33 @@ func (s *WHEPServer) Listen(ctx context.Context) {
 			return
 		}
 		for _, track := range tracks {
-			peerConnection.AddTrack(track.Track)
+			rtpSender, _ := peerConnection.AddTrack(track.Track)
+			go func() {
+				for {
+					rtcpPackets, _, rtcpErr := rtpSender.ReadRTCP()
+					if rtcpErr != nil {
+						s.log.Error(rtcpErr)
+					}
+
+					for _, r := range rtcpPackets {
+						// Print a string description of the packets
+						switch report := r.(type) {
+						case *rtcp.ReceiverReport:
+							// report := r.(*rtcp.ReceiverReport)
+							var out string
+							for _, i := range report.Reports {
+								out += fmt.Sprintf("\t%x\t%d/%d\t%d\n", i.SSRC, i.FractionLost, i.TotalLost, i.LastSequenceNumber)
+							}
+							s.log.Debug(out)
+						default:
+
+							if stringer, canString := r.(fmt.Stringer); canString {
+								s.log.Debugf("Unknown Received RTCP Packet: %v", stringer.String())
+							}
+						}
+					}
+				}
+			}()
 		}
 
 		s.addPeerConnection(peerID, peerConnection)
