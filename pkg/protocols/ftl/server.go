@@ -36,6 +36,9 @@ const (
 
 	MaxLineLenBytes  = 1024
 	ReadWriteTimeout = time.Minute
+
+	FTL_PAYLOAD_TYPE_SENDER_REPORT = 200
+	FTL_PAYLOAD_TYPE_PING          = 250
 )
 
 type ConnConfig struct {
@@ -413,7 +416,7 @@ func (conn *FtlConnection) listenForMedia() error {
 	conn.log.Infof("Listening for UDP connections on: %d", conn.assignedMediaPort)
 
 	go func() {
-		inboundRTPPacket := make([]byte, packetMtu)
+		inboundRTPPacket := make([]byte, 2048)
 
 		for {
 			if !conn.mediaConnected {
@@ -433,7 +436,8 @@ func (conn *FtlConnection) listenForMedia() error {
 			// }
 
 			packet := &rtp.Packet{}
-			if err = packet.Unmarshal(inboundRTPPacket[:n]); err != nil {
+			buf := inboundRTPPacket[:n]
+			if err = packet.Unmarshal(buf); err != nil {
 				// this is probably wrong... but... let's do it anyway.
 				conn.log.Warn(err)
 				continue
@@ -455,7 +459,41 @@ func (conn *FtlConnection) listenForMedia() error {
 					conn.Close()
 					return
 				}
+			} else {
+				// FTL implementation uses the marker bit space for payload types above 127
+				// when the payload type is not audio or video. So we need to reconstruct it.
+				marker := buf[1] >> 7 & 0x1
+				payloadType := marker<<7 | packet.PayloadType
+
+				if payloadType == FTL_PAYLOAD_TYPE_PING {
+					// FTL client is trying to measure round trip time (RTT), pong back the same packet
+					conn.mediaTransport.Write(buf)
+					// conn.log.Info("Got ping!")
+				} else if payloadType == FTL_PAYLOAD_TYPE_SENDER_REPORT {
+					// We expect this packet to be 28 bytes big.
+					if len(buf) != 28 {
+						conn.log.Warn("Invalid sender report packet of length %d (expect 28)", len(buf))
+					}
+					// char* packet = reinterpret_cast<char*>(rtpHeader);
+					// uint32_t ssrc              = ntohl(*reinterpret_cast<uint32_t*>(packet + 4));
+					// uint32_t ntpTimestampHigh  = ntohl(*reinterpret_cast<uint32_t*>(packet + 8));
+					// uint32_t ntpTimestampLow   = ntohl(*reinterpret_cast<uint32_t*>(packet + 12));
+					// uint32_t rtpTimestamp      = ntohl(*reinterpret_cast<uint32_t*>(packet + 16));
+					// uint32_t senderPacketCount = ntohl(*reinterpret_cast<uint32_t*>(packet + 20));
+					// uint32_t senderOctetCount  = ntohl(*reinterpret_cast<uint32_t*>(packet + 24));
+
+					// uint64_t ntpTimestamp = (static_cast<uint64_t>(ntpTimestampHigh) << 32) |
+					//     static_cast<uint64_t>(ntpTimestampLow);
+
+					// TODO: We don't do anything with this information right now, but we ought to log
+					// it away somewhere.
+					// conn.log.Info("Got sender report!")
+				} else {
+					conn.log.Info("Unknown RTP payload type %d (orig %d})\n", payloadType,
+						packet.PayloadType)
+				}
 			}
+
 		}
 	}()
 
