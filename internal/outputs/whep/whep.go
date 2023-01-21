@@ -116,6 +116,7 @@ func (s *WHEPServer) Listen(ctx context.Context) {
 					rtcpPackets, _, rtcpErr := rtpSender.ReadRTCP()
 					if rtcpErr != nil {
 						s.log.Error(rtcpErr)
+						return
 					}
 
 					for _, r := range rtcpPackets {
