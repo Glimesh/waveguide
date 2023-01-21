@@ -123,11 +123,14 @@ func (s *WHEPServer) Listen(ctx context.Context) {
 						switch report := r.(type) {
 						case *rtcp.ReceiverReport:
 							// report := r.(*rtcp.ReceiverReport)
-							var out string
-							for _, i := range report.Reports {
-								out += fmt.Sprintf("\t%x\t%d/%d\t%d\n", i.SSRC, i.FractionLost, i.TotalLost, i.LastSequenceNumber)
-							}
-							peerLog.Debugf(out)
+							// var out string
+							// for _, i := range report.Reports {
+							// 	out += fmt.Sprintf("\t%x\t%d/%d\t%d\n", i.SSRC, i.FractionLost, i.TotalLost, i.LastSequenceNumber)
+							// }
+							// peerLog.Debugf(out)
+							peerLog.Debug(report.String())
+						case *rtcp.ReceiverEstimatedMaximumBitrate:
+							peerLog.Debug(report.String())
 						default:
 
 							if stringer, canString := r.(fmt.Stringer); canString {
