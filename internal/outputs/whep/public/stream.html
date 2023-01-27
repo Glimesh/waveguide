@@ -93,22 +93,38 @@
                 type: "offer",
                 sdp: body
             }));
+
+
+            // sendChannel.onclose = () => console.log('sendChannel has closed')
+            // sendChannel.onopen = () => console.log('sendChannel has opened')
+            // sendChannel.onmessage = e => console.log(`Message from DataChannel '${sendChannel.label}' payload '${e.data}'`)
+
             // let answer = await pc.createAnswer();
             // await pc.setLocalDescription(answer);
-            pc.createAnswer().then(answer => {
-                pc.setLocalDescription(answer)
 
-                fetch(resp.headers.get("location"), {
-                    method: "PATCH",
-                    headers: {
-                        'Accept': 'application/sdp'
-                    },
-                    body: answer.sdp
-                }).then((resp2) => {
-                    // console.log(resp2);
-                    // console.log(esp2.text());
-                })
+            let answer = await pc.createAnswer();
+            console.log("1")
+            await pc.setLocalDescription(answer);
+            console.log("2")
+
+            let patchResponse = await fetch(resp.headers.get("location"), {
+                method: "PATCH",
+                headers: {
+                    'Accept': 'application/sdp'
+                },
+                body: answer.sdp
             });
+            console.log("3")
+
+            log("WebRTC completely connected")
+
+
+            const debugChannel = pc.createDataChannel('debug');
+
+            debugChannel.addEventListener("open", (event) => log("Debug data channel open"));
+            debugChannel.addEventListener("close", (event) => log("Debug data channel closed"));
+            debugChannel.addEventListener("message", (event) => log(event.data));
+
         }
 
         setupStreamFromEndpoint(endpoint, videoEl);

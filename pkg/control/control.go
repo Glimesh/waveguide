@@ -152,43 +152,46 @@ func (mgr *Control) StopStream(channelID ChannelID) (err error) {
 func (mgr *Control) setupHeartbeat(channelID ChannelID) {
 	ticker := time.NewTicker(15 * time.Second)
 	go func() {
-		errors := 0
-		// Todo: Move this somewhere else
+		tickFailed := 0
 
 		for {
 			select {
 			case <-ticker.C:
-				var err error
-
 				mgr.log.WithField("channel_id", channelID).Info("Collecting metadata")
+				var err error
+				hasErrors := false
 
 				err = mgr.sendThumbnail(channelID)
 				if err != nil {
 					mgr.log.Error(err)
+					hasErrors = true
 				}
 
 				err = mgr.sendMetadata(channelID)
 				if err != nil {
 					mgr.log.Error(err)
+					hasErrors = true
 				}
 
 				err = mgr.orchestrator.Heartbeat(channelID)
 				if err != nil {
 					mgr.log.Error(err)
+					hasErrors = true
 				}
 
-				if err != nil {
-					// Close the stream
-					errors += 1
+				if hasErrors {
+					tickFailed += 1
+				} else {
+					tickFailed -= 1
 				}
-				if errors > 5 {
-					mgr.log.WithField("channel_id", channelID).Warn("Stopping stream due to excessive metadata errors")
+
+				// Look for 3 consecutive failures
+				if tickFailed >= 3 {
+					mgr.log.WithField("channel_id", channelID).Warn("Stopping stream due to excessive heartbeat errors")
 					mgr.StopStream(channelID)
 					ticker.Stop()
 					return
 				}
-
-				errors = 0
 
 			case <-mgr.metadataCollectors[channelID]:
 				ticker.Stop()

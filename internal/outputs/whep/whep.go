@@ -37,6 +37,7 @@ type WHEPServer struct {
 
 	peerConnectionsMutex sync.RWMutex
 	peerConnections      map[string]*webrtc.PeerConnection
+	debugChannels        map[string]*webrtc.DataChannel
 }
 
 func New(config WHEPConfig) *WHEPServer {
@@ -44,6 +45,7 @@ func New(config WHEPConfig) *WHEPServer {
 		config:               config,
 		peerConnectionsMutex: sync.RWMutex{},
 		peerConnections:      make(map[string]*webrtc.PeerConnection),
+		debugChannels:        make(map[string]*webrtc.DataChannel),
 	}
 }
 
@@ -102,6 +104,48 @@ func (s *WHEPServer) Listen(ctx context.Context) {
 			s.log.Debugf("Connection State has changed %s \n", connectionState.String())
 		})
 
+		// peerConnection.OnDataChannel(func(d *webrtc.DataChannel) {
+		// 	fmt.Printf("New DataChannel %s %d\n", d.Label(), d.ID())
+
+		// 	// Register channel opening handling
+		// 	d.OnOpen(func() {
+		// 		fmt.Printf("Data channel '%s'-'%d' open. Random messages will now be sent to any connected DataChannels every 5 seconds\n", d.Label(), d.ID())
+
+		// 		for range time.NewTicker(5 * time.Second).C {
+		// 			message := "hi"
+		// 			fmt.Printf("Sending '%s'\n", message)
+
+		// 			// Send the message as text
+		// 			sendErr := d.SendText(message)
+		// 			if sendErr != nil {
+		// 				panic(sendErr)
+		// 			}
+		// 		}
+		// 	})
+
+		// 	// Register text message handling
+		// 	d.OnMessage(func(msg webrtc.DataChannelMessage) {
+		// 		fmt.Printf("Message from DataChannel '%s': '%s'\n", d.Label(), string(msg.Data))
+		// 	})
+		// })
+		peerConnection.CreateDataChannel("debug", nil)
+		peerConnection.OnDataChannel(func(d *webrtc.DataChannel) {
+			d.OnOpen(func() {
+				s.log.Debugf("Debug data channel '%s'-'%d' open", d.Label(), d.ID())
+
+				s.debugChannels[peerID] = d
+			})
+			d.OnClose(func() {
+				s.log.Debugf("Debug data channel '%s'-'%d' closed", d.Label(), d.ID())
+				delete(s.debugChannels, peerID)
+			})
+
+			// Register text message handling
+			d.OnMessage(func(msg webrtc.DataChannelMessage) {
+				s.log.Debugf("Debug data channel message from client '%s': '%s'", d.Label(), string(msg.Data))
+			})
+		})
+
 		// Importantly, the track needs to be added before the offer (duh!)
 		tracks, err := s.control.GetTracks(control.ChannelID(channelID))
 		if err != nil {
@@ -111,12 +155,17 @@ func (s *WHEPServer) Listen(ctx context.Context) {
 		for _, track := range tracks {
 			rtpSender, _ := peerConnection.AddTrack(track.Track)
 			go func() {
-				peerLog := s.log.WithField("peer", peerID)
+				// _ := s.log.WithField("peer", peerID)
 				for {
 					rtcpPackets, _, rtcpErr := rtpSender.ReadRTCP()
 					if rtcpErr != nil {
 						s.log.Error(rtcpErr)
 						return
+					}
+
+					debugChannel, ok := s.debugChannels[peerID]
+					if !ok {
+						continue
 					}
 
 					for _, r := range rtcpPackets {
@@ -129,13 +178,18 @@ func (s *WHEPServer) Listen(ctx context.Context) {
 							// 	out += fmt.Sprintf("\t%x\t%d/%d\t%d\n", i.SSRC, i.FractionLost, i.TotalLost, i.LastSequenceNumber)
 							// }
 							// peerLog.Debugf(out)
-							peerLog.Debug(report.String())
+							debugChannel.SendText(report.String())
+							// peerLog.Debug(report.String())
 						case *rtcp.ReceiverEstimatedMaximumBitrate:
-							peerLog.Debug(report.String())
+							err := debugChannel.SendText(report.String())
+							if err != nil {
+								s.log.Error(err)
+							}
 						default:
 
 							if stringer, canString := r.(fmt.Stringer); canString {
-								peerLog.Debugf("Unknown Received RTCP Packet: %v", stringer.String())
+								debugChannel.SendText(fmt.Sprintf("Unknown Received RTCP Packet: %v", stringer.String()))
+								// peerLog.Debugf("Unknown Received RTCP Packet: %v", stringer.String())
 							}
 						}
 					}
