@@ -416,7 +416,7 @@ func (conn *FtlConnection) listenForMedia() error {
 	conn.log.Infof("Listening for UDP connections on: %d", conn.assignedMediaPort)
 
 	go func() {
-		inboundRTPPacket := make([]byte, 2048)
+		inboundRTPPacket := make([]byte, 1500)
 
 		for {
 			if !conn.mediaConnected {
@@ -429,21 +429,13 @@ func (conn *FtlConnection) listenForMedia() error {
 				conn.Close()
 				return
 			}
-			// if len(inboundRTPPacket) < 12 {
-			// 	// This packet is too small to have an RTP header.
-			// 	conn.log.Errorf("Channel %s received non-RTP packet of size %d (< 12 bytes). Discarding...", conn.channelID, n)
-			// 	continue
-			// }
 
 			packet := &rtp.Packet{}
 			buf := inboundRTPPacket[:n]
 			if err = packet.Unmarshal(buf); err != nil {
-				// this is probably wrong... but... let's do it anyway.
-				conn.log.Warn(err)
+				// Seems like we encounter situations from OBS where they send us RTP packets without payload.
+				// The PayloadType is 122 and you can find examples here: https://go.dev/play/p/H7MLbVeCbMI
 				continue
-				// conn.log.Error(errors.Wrap(ErrRead, err.Error()))
-				// conn.Close()
-				// return
 			}
 
 			// The FTL client actually tells us what PayloadType to use for these: VideoPayloadType & AudioPayloadType
