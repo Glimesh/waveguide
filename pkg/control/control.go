@@ -182,7 +182,9 @@ func (mgr *Control) setupHeartbeat(channelID ChannelID) {
 				if hasErrors {
 					tickFailed += 1
 				} else {
-					tickFailed -= 1
+					if tickFailed > 0 {
+						tickFailed -= 1
+					}
 				}
 
 				// Look for 3 consecutive failures
