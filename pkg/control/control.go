@@ -157,7 +157,7 @@ func (mgr *Control) setupHeartbeat(channelID ChannelID) {
 		for {
 			select {
 			case <-ticker.C:
-				mgr.log.WithField("channel_id", channelID).Info("Collecting metadata")
+				mgr.log.WithField("channel_id", channelID).Infof("Collecting metadata tickFailed=%d", tickFailed)
 				var err error
 				hasErrors := false
 
