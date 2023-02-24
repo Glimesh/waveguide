@@ -110,6 +110,7 @@ func (mgr *Control) StartStream(channelID ChannelID) (*Stream, error) {
 
 	streamID, err := mgr.service.StartStream(channelID)
 	if err != nil {
+		mgr.removeStream(channelID)
 		return &Stream{}, err
 	}
 
@@ -117,6 +118,7 @@ func (mgr *Control) StartStream(channelID ChannelID) (*Stream, error) {
 
 	err = mgr.orchestrator.StartStream(stream.ChannelID, stream.StreamID)
 	if err != nil {
+		mgr.removeStream(channelID)
 		return &Stream{}, err
 	}
 
@@ -238,14 +240,18 @@ func (mgr *Control) sendThumbnail(channelID ChannelID) (err error) {
 	var data []byte
 	if len(stream.lastKeyframe) > 0 {
 		data = stream.lastKeyframe
-	} else {
-		sample := stream.videoSampler.Pop()
-		if sample == nil {
-			mgr.log.WithField("channel_id", channelID).Debug("Video sample is not ready yet")
-			return
-		}
-		data = sample.Data
 	}
+	// else {
+	// 	sample, ts := stream.videoSampler.PopWithTimestamp()
+	// 	if sample == nil {
+	// 		mgr.log.WithField("channel_id", channelID).Debug("Video sample is not ready yet")
+	// 		return
+	// 	}
+	// 	data = sample.Data
+
+	// 	mgr.log.Debugf("Screenshot data len %d at %s", len(data), ts)
+	// 	os.WriteFile("screenshot.buf", data, 0644)
+	// }
 	if len(data) == 0 {
 		return nil
 	}
@@ -299,8 +305,9 @@ func (mgr *Control) newStream(channelID ChannelID) (*Stream, error) {
 		clientVendorName:    "",
 		clientVendorVersion: "",
 		// recentVideoPackets:  make([]*rtp.Packet, 0),
-		VideoPackets: make(chan *rtp.Packet, 512),
-		videoSampler: samplebuilder.New(50, &codecs.H264Packet{}, 90000),
+		VideoPackets:    make(chan *rtp.Packet, 512),
+		videoSampler:    samplebuilder.New(1024, &codecs.H264Packet{}, 90000),
+		keyframePackets: make([]*rtp.Packet, 0),
 	}
 
 	if _, exists := mgr.streams[channelID]; exists {
