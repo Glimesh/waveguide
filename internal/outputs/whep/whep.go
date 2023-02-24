@@ -1,6 +1,8 @@
 package whep
 
 import (
+	_ "embed"
+
 	"context"
 	"fmt"
 	"html/template"
@@ -19,6 +21,9 @@ import (
 )
 
 const PC_TIMEOUT = time.Minute * 5
+
+//go:embed public/stream.html
+var streamTemplateContent string
 
 type WHEPConfig struct {
 	// Listen address of the webserver
@@ -61,7 +66,7 @@ func (s *WHEPServer) Listen(ctx context.Context) {
 	s.log.Infof("Registering WHEP http endpoints")
 
 	// Todo: Find better way of fetching this path
-	streamTemplate := template.Must(template.ParseFiles("internal/outputs/whep/public/stream.html"))
+	streamTemplate := template.Must(template.New("stream.html").Parse(streamTemplateContent))
 
 	// Player (Nothing) => Endpoint (Offer) => Player (Answer)
 	s.control.RegisterHandleFunc("/whep/endpoint/", func(w http.ResponseWriter, r *http.Request) {
@@ -98,10 +103,6 @@ func (s *WHEPServer) Listen(ctx context.Context) {
 			case webrtc.PeerConnectionStateFailed:
 				s.cleanupPeerConnection(peerID)
 			}
-		})
-
-		peerConnection.OnICEConnectionStateChange(func(connectionState webrtc.ICEConnectionState) {
-			s.log.Debugf("Connection State has changed %s \n", connectionState.String())
 		})
 
 		// peerConnection.OnDataChannel(func(d *webrtc.DataChannel) {

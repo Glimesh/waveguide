@@ -110,6 +110,7 @@ func (mgr *Control) StartStream(channelID ChannelID) (*Stream, error) {
 
 	streamID, err := mgr.service.StartStream(channelID)
 	if err != nil {
+		mgr.removeStream(channelID)
 		return &Stream{}, err
 	}
 
@@ -117,6 +118,7 @@ func (mgr *Control) StartStream(channelID ChannelID) (*Stream, error) {
 
 	err = mgr.orchestrator.StartStream(stream.ChannelID, stream.StreamID)
 	if err != nil {
+		mgr.removeStream(channelID)
 		return &Stream{}, err
 	}
 
@@ -300,7 +302,7 @@ func (mgr *Control) newStream(channelID ChannelID) (*Stream, error) {
 		clientVendorVersion: "",
 		// recentVideoPackets:  make([]*rtp.Packet, 0),
 		VideoPackets: make(chan *rtp.Packet, 512),
-		videoSampler: samplebuilder.New(50, &codecs.H264Packet{}, 90000),
+		videoSampler: samplebuilder.New(150, &codecs.H264Packet{}, 90000),
 	}
 
 	if _, exists := mgr.streams[channelID]; exists {

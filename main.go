@@ -7,6 +7,7 @@ import (
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
+	"syscall"
 
 	"github.com/Glimesh/waveguide/internal/inputs/fs"
 	"github.com/Glimesh/waveguide/internal/inputs/ftl"
@@ -143,10 +144,8 @@ func main() {
 		go output.Listen(ctx)
 	}
 
-	ctrl.StartHTTPServer()
-
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt)
+	c := make(chan os.Signal)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-c
 		log.Info("Exiting Waveguide and cleaning up")
@@ -154,7 +153,7 @@ func main() {
 		os.Exit(0)
 	}()
 
-	select {}
+	ctrl.StartHTTPServer()
 }
 
 func unmarshalConfig(configKey string, config interface{}) {
