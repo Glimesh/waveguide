@@ -424,12 +424,12 @@ func (conn *FtlConnection) listenForMedia() error {
 	// Create NACK Generator
 	generatorFactory, err := nack.NewGeneratorInterceptor()
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	generator, err := generatorFactory.NewInterceptor("")
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	// Create our interceptor chain with just a NACK Generator
@@ -450,6 +450,8 @@ func (conn *FtlConnection) listenForMedia() error {
 
 			n, addr, err := mediaConn.ReadFrom(buffer)
 			if err != nil {
+				conn.log.Error(errors.Wrap(ErrRead, err.Error()))
+				conn.Close()
 				return
 			}
 
@@ -492,7 +494,7 @@ func (conn *FtlConnection) listenForMedia() error {
 				} else if payloadType == FTL_PAYLOAD_TYPE_SENDER_REPORT {
 					// We expect this packet to be 28 bytes big.
 					if len(buf) != 28 {
-						conn.log.Warn("Invalid sender report packet of length %d (expect 28)", len(buf))
+						conn.log.Warn("FTL: Invalid sender report packet of length %d (expect 28)", len(buf))
 					}
 					// char* packet = reinterpret_cast<char*>(rtpHeader);
 					// uint32_t ssrc              = ntohl(*reinterpret_cast<uint32_t*>(packet + 4));
@@ -509,7 +511,7 @@ func (conn *FtlConnection) listenForMedia() error {
 					// it away somewhere.
 					// conn.log.Info("Got sender report!")
 				} else {
-					conn.log.Info("Unknown RTP payload type %d (orig %d})\n", payloadType,
+					conn.log.Info("RTP: Unknown RTP payload type %d (orig %d})\n", payloadType,
 						packet.PayloadType)
 				}
 			}
@@ -523,9 +525,16 @@ func (conn *FtlConnection) listenForMedia() error {
 						return 0, err
 					}
 
-					fmt.Println("RTCP:")
-					for _, p := range pkts {
-						fmt.Println(p)
+					for _, r := range pkts {
+						// Print a string description of the packets
+						switch report := r.(type) {
+						case *rtcp.TransportLayerNack:
+							conn.log.Infof("RTCP: Sending NACK to SSRC=%d for Media SSRC=%d", report.SenderSSRC, report.MediaSSRC)
+						default:
+							if stringer, canString := r.(fmt.Stringer); canString {
+								conn.log.Debugf("RTCP: Unexpected RTCP packet: %s", stringer.String())
+							}
+						}
 					}
 
 					return mediaConn.WriteTo(buf, addr)
@@ -537,80 +546,4 @@ func (conn *FtlConnection) listenForMedia() error {
 	}()
 
 	return nil
-
-	// go func() {
-	// 	inboundRTPPacket := make([]byte, 1500)
-
-	// 	for {
-	// 		if !conn.mediaConnected {
-	// 			return
-	// 		}
-
-	// 		n, _, err := conn.mediaTransport.ReadFrom(inboundRTPPacket)
-	// 		if err != nil {
-	// 			conn.log.Error(err)
-	// 			conn.Close()
-	// 			return
-	// 		}
-
-	// 		packet := &rtp.Packet{}
-	// 		buf := inboundRTPPacket[:n]
-	// 		if err = packet.Unmarshal(buf); err != nil {
-	// 			// Seems like we encounter situations from OBS where they send us RTP packets without payload.
-	// 			// The PayloadType is 122 and you can find examples here: https://go.dev/play/p/H7MLbVeCbMI
-	// 			continue
-	// 		}
-
-	// 		// The FTL client actually tells us what PayloadType to use for these: VideoPayloadType & AudioPayloadType
-	// 		if packet.Header.PayloadType == conn.Metadata.VideoPayloadType {
-	// 			if err := conn.handler.OnVideo(packet); err != nil {
-	// 				conn.log.Error(errors.Wrap(ErrWrite, err.Error()))
-	// 				conn.Close()
-	// 				return
-	// 			}
-	// 		} else if packet.Header.PayloadType == conn.Metadata.AudioPayloadType {
-	// 			if err := conn.handler.OnAudio(packet); err != nil {
-	// 				conn.log.Error(errors.Wrap(ErrWrite, err.Error()))
-	// 				conn.Close()
-	// 				return
-	// 			}
-	// 		} else {
-	// 			// FTL implementation uses the marker bit space for payload types above 127
-	// 			// when the payload type is not audio or video. So we need to reconstruct it.
-	// 			marker := buf[1] >> 7 & 0x1
-	// 			payloadType := marker<<7 | packet.PayloadType
-
-	// 			if payloadType == FTL_PAYLOAD_TYPE_PING {
-	// 				// FTL client is trying to measure round trip time (RTT), pong back the same packet
-	// 				conn.mediaTransport.Write(buf)
-	// 				// conn.log.Info("Got ping!")
-	// 			} else if payloadType == FTL_PAYLOAD_TYPE_SENDER_REPORT {
-	// 				// We expect this packet to be 28 bytes big.
-	// 				if len(buf) != 28 {
-	// 					conn.log.Warn("Invalid sender report packet of length %d (expect 28)", len(buf))
-	// 				}
-	// 				// char* packet = reinterpret_cast<char*>(rtpHeader);
-	// 				// uint32_t ssrc              = ntohl(*reinterpret_cast<uint32_t*>(packet + 4));
-	// 				// uint32_t ntpTimestampHigh  = ntohl(*reinterpret_cast<uint32_t*>(packet + 8));
-	// 				// uint32_t ntpTimestampLow   = ntohl(*reinterpret_cast<uint32_t*>(packet + 12));
-	// 				// uint32_t rtpTimestamp      = ntohl(*reinterpret_cast<uint32_t*>(packet + 16));
-	// 				// uint32_t senderPacketCount = ntohl(*reinterpret_cast<uint32_t*>(packet + 20));
-	// 				// uint32_t senderOctetCount  = ntohl(*reinterpret_cast<uint32_t*>(packet + 24));
-
-	// 				// uint64_t ntpTimestamp = (static_cast<uint64_t>(ntpTimestampHigh) << 32) |
-	// 				//     static_cast<uint64_t>(ntpTimestampLow);
-
-	// 				// TODO: We don't do anything with this information right now, but we ought to log
-	// 				// it away somewhere.
-	// 				// conn.log.Info("Got sender report!")
-	// 			} else {
-	// 				conn.log.Info("Unknown RTP payload type %d (orig %d})\n", payloadType,
-	// 					packet.PayloadType)
-	// 			}
-	// 		}
-
-	// 	}
-	// }()
-
-	// return nil
 }
