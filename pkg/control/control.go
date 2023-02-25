@@ -215,7 +215,7 @@ func (mgr *Control) sendMetadata(channelID ChannelID) error {
 
 	return mgr.service.UpdateStreamMetadata(stream.StreamID, StreamMetadata{
 		AudioCodec:        stream.audioCodec,
-		IngestServer:      mgr.hostname,
+		IngestServer:      mgr.config.Hostname,
 		IngestViewers:     0,
 		LostPackets:       0, // Don't exist
 		NackPackets:       0, // Don't exist

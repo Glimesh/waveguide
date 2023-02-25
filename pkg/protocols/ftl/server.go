@@ -222,6 +222,9 @@ func (conn *FtlConnection) ProcessCommand(command string) error {
 		return conn.processAttributeCommand(command)
 	} else if command == "." {
 		return conn.processDotCommand()
+	} else if command == "\n" {
+		// Unsure where this comes from exactly, but ignore it
+		return nil
 	} else {
 		conn.log.Warnf("Unknown ingest command: %s", command)
 	}
