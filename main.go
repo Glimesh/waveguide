@@ -27,7 +27,6 @@ import (
 
 func main() {
 	log := logrus.New()
-	log.Level = logrus.DebugLevel
 
 	hostname, err := os.Hostname()
 	if err != nil {
@@ -39,6 +38,7 @@ func main() {
 	viper.SetConfigName("config")
 	viper.SetConfigType("toml")
 	viper.AddConfigPath(".")
+	viper.SetDefault("control.log_level", "info")
 	err = viper.ReadInConfig()
 	if err != nil {
 		log.Fatal(fmt.Errorf("fatal error config file: %w", err))
@@ -48,6 +48,12 @@ func main() {
 	go func() {
 		log.Println(http.ListenAndServe(":6060", nil))
 	}()
+
+	level, err := logrus.ParseLevel(viper.GetString("control.log_level"))
+	if err != nil {
+		log.Fatal(fmt.Errorf("fatal error config file: %w", err))
+	}
+	log.SetLevel(level)
 
 	var service control.Service
 	switch viper.GetString("control.service") {
