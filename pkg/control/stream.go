@@ -3,7 +3,6 @@ package control
 import (
 	"errors"
 
-	"github.com/Glimesh/waveguide/pkg/h264"
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v3"
 	"github.com/pion/webrtc/v3/pkg/media/samplebuilder"
@@ -92,11 +91,11 @@ func (s *Stream) ReportLastKeyframe(keyframe []byte) error {
 
 func (s *Stream) KeyframeCollector() {
 	for {
-		p := <-s.VideoPackets
+		<-s.VideoPackets
 
-		if h264.IsKeyframePart(p.Payload) {
-			s.videoSampler.Push(p)
-		}
+		// if h264.IsKeyframePart(p.Payload) {
+		// 	s.videoSampler.Push(p)
+		// }
 	}
 }
 

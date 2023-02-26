@@ -85,6 +85,7 @@ func main() {
 
 	var controlConfig control.Config
 	unmarshalConfig("control", &controlConfig)
+	controlConfig.Hostname = hostname
 	ctrl := control.New(controlConfig)
 	ctrl.SetService(service)
 	ctrl.SetOrchestrator(orchestrator)

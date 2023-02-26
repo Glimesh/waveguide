@@ -2,11 +2,12 @@ package control
 
 import (
 	"bytes"
-	"errors"
 	"image"
 	"image/jpeg"
 	"net/http"
 	"time"
+
+	"github.com/pkg/errors"
 
 	"github.com/Glimesh/waveguide/pkg/h264"
 	"github.com/pion/rtp"
@@ -22,7 +23,6 @@ type Pipe struct {
 }
 
 type Control struct {
-	hostname           string
 	log                logrus.FieldLogger
 	service            Service
 	orchestrator       Orchestrator
@@ -151,33 +151,38 @@ func (mgr *Control) StopStream(channelID ChannelID) (err error) {
 	return mgr.removeStream(channelID)
 }
 
+var ErrHeartbeatThumbnail = errors.New("error sending thumbnail")
+var ErrHeartbeatSendMetadata = errors.New("error sending metadata")
+var ErrHeartbeatOrchestratorHeartbeat = errors.New("error sending orchestrator heartbeat")
+
 func (mgr *Control) setupHeartbeat(channelID ChannelID) {
 	ticker := time.NewTicker(15 * time.Second)
 	go func() {
 		tickFailed := 0
+		streamLogger := mgr.log.WithField("channel_id", channelID)
 
 		for {
 			select {
 			case <-ticker.C:
-				mgr.log.WithField("channel_id", channelID).Infof("Collecting metadata tickFailed=%d", tickFailed)
+				streamLogger.Infof("Collecting metadata tickFailed=%d", tickFailed)
 				var err error
 				hasErrors := false
 
 				err = mgr.sendThumbnail(channelID)
 				if err != nil {
-					mgr.log.Error(err)
+					streamLogger.Error(errors.Wrap(err, ErrHeartbeatThumbnail.Error()))
 					hasErrors = true
 				}
 
 				err = mgr.sendMetadata(channelID)
 				if err != nil {
-					mgr.log.Error(err)
+					streamLogger.Error(errors.Wrap(err, ErrHeartbeatSendMetadata.Error()))
 					hasErrors = true
 				}
 
 				err = mgr.orchestrator.Heartbeat(channelID)
 				if err != nil {
-					mgr.log.Error(err)
+					streamLogger.Error(errors.Wrap(err, ErrHeartbeatOrchestratorHeartbeat.Error()))
 					hasErrors = true
 				}
 
@@ -190,8 +195,8 @@ func (mgr *Control) setupHeartbeat(channelID ChannelID) {
 				}
 
 				// Look for 3 consecutive failures
-				if tickFailed >= 3 {
-					mgr.log.WithField("channel_id", channelID).Warn("Stopping stream due to excessive heartbeat errors")
+				if tickFailed >= 5 {
+					streamLogger.Warn("Stopping stream due to excessive heartbeat errors")
 					mgr.StopStream(channelID)
 					ticker.Stop()
 					return
@@ -240,14 +245,15 @@ func (mgr *Control) sendThumbnail(channelID ChannelID) (err error) {
 	var data []byte
 	if len(stream.lastKeyframe) > 0 {
 		data = stream.lastKeyframe
-	} else {
-		sample := stream.videoSampler.Pop()
-		if sample == nil {
-			mgr.log.WithField("channel_id", channelID).Debug("Video sample is not ready yet")
-			return
-		}
-		data = sample.Data
 	}
+	// else {
+	// 	sample := stream.videoSampler.Pop()
+	// 	if sample == nil {
+	// 		mgr.log.WithField("channel_id", channelID).Debug("Video sample is not ready yet")
+	// 		return
+	// 	}
+	// 	data = sample.Data
+	// }
 	if len(data) == 0 {
 		return nil
 	}
