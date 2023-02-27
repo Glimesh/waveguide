@@ -138,17 +138,19 @@ func (mgr *Control) StopStream(channelID ChannelID) (err error) {
 	stream.stopHeartbeat <- true
 	mgr.metadataCollectors[channelID] <- true
 
-	// Tell the orchestrator the stream has ended
-	if err := mgr.orchestrator.StopStream(stream.ChannelID, stream.StreamID); err != nil {
-		return err
+	// Make sure we send stop commands to everyone, and don't return until they've all been sent
+	serviceErr := mgr.service.EndStream(stream.StreamID)
+	orchestratorErr := mgr.orchestrator.StopStream(stream.ChannelID, stream.StreamID)
+	controlErr := mgr.removeStream(channelID)
+
+	if serviceErr != nil {
+		return serviceErr
+	}
+	if orchestratorErr != nil {
+		return orchestratorErr
 	}
 
-	// Tell the service the stream has ended
-	if err := mgr.service.EndStream(stream.StreamID); err != nil {
-		return err
-	}
-
-	return mgr.removeStream(channelID)
+	return controlErr
 }
 
 var ErrHeartbeatThumbnail = errors.New("error sending thumbnail")
