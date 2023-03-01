@@ -40,20 +40,14 @@ func (kf *Keyframer) WriteRTP(p *rtp.Packet) []byte {
 
 	// Wait until we get a keyframe part with a timestmap,
 	// and then use that for collecting future packets
-	keyframePart := h264.IsKeyframePart(p.Payload)
-	// fmt.Printf("ts=%d kfp=%t\n", kf.timestamp, keyframePart)
+	keyframePart := h264.IsAnyKeyframe(p.Payload)
 	if !kf.frameStarted && keyframePart {
-		fmt.Printf("Setting new timestamp %d\n", p.Timestamp)
 		kf.timestamp = p.Timestamp
 		kf.frameStarted = true
 	}
 	if !kf.frameStarted {
 		return nil
 	}
-	// else {
-	// 	fmt.Printf("ts=%d kfp=%t\n", kf.timestamp, keyframePart)
-	// 	return false
-	// }
 
 	kf.packets[p.SequenceNumber] = p.Payload
 	if p.Marker {

@@ -11,9 +11,6 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/Glimesh/waveguide/pkg/h264"
-	"github.com/pion/rtp"
-	"github.com/pion/rtp/codecs"
-	"github.com/pion/webrtc/v3/pkg/media/samplebuilder"
 	"github.com/sirupsen/logrus"
 )
 
@@ -123,11 +120,11 @@ func (mgr *Control) StartStream(channelID ChannelID) (*Stream, error) {
 		return &Stream{}, err
 	}
 
-	// ps := Peersnap{}
-	// go ps.Start(stream.ChannelID)
-
 	go mgr.setupHeartbeat(channelID)
-	go stream.KeyframeCollector()
+
+	// Really gross, I'm sorry.
+	whepEndpoint := fmt.Sprintf("%s/whep/endpoint", mgr.HttpServerUrl())
+	go peerSnapper(stream.stopPeersnap, stream.lastThumbnail, whepEndpoint, channelID, mgr.log.WithField("channel_id", channelID).WithField("app", "peersnap"))
 
 	return stream, err
 }
@@ -140,6 +137,7 @@ func (mgr *Control) StopStream(channelID ChannelID) (err error) {
 	mgr.log.Infof("Stopping stream for %s", channelID)
 
 	stream.stopHeartbeat <- true
+	stream.stopPeersnap <- true
 	mgr.metadataCollectors[channelID] <- true
 
 	// Make sure we send stop commands to everyone, and don't return until they've all been sent
@@ -249,25 +247,11 @@ func (mgr *Control) sendThumbnail(channelID ChannelID) (err error) {
 	}
 
 	var data []byte
-	if len(stream.lastKeyframe) > 0 {
-		data = stream.lastKeyframe
-	} else {
-		keyframe := stream.Keyframer.Keyframe()
-		if len(keyframe) > 0 {
-			fmt.Println("Got data from keyframe")
-			fmt.Println(stream.Keyframer)
-			data = keyframe
-			stream.Keyframer.Reset()
-		}
+	// Since stream.lastThumbnail is a buffered chan, let's read all values to get the newest
+	for len(stream.lastThumbnail) > 0 {
+		data = <-stream.lastThumbnail
 	}
-	// else {
-	// 	sample := stream.videoSampler.Pop()
-	// 	if sample == nil {
-	// 		mgr.log.WithField("channel_id", channelID).Debug("Video sample is not ready yet")
-	// 		return
-	// 	}
-	// 	data = sample.Data
-	// }
+
 	if len(data) == 0 {
 		return nil
 	}
@@ -311,20 +295,18 @@ func (mgr *Control) sendThumbnail(channelID ChannelID) (err error) {
 
 func (mgr *Control) newStream(channelID ChannelID) (*Stream, error) {
 	stream := &Stream{
-		authenticated:       true,
-		mediaStarted:        false,
-		ChannelID:           channelID,
-		stopHeartbeat:       make(chan bool, 1),
+		authenticated: true,
+		mediaStarted:  false,
+		ChannelID:     channelID,
+		stopHeartbeat: make(chan bool, 1),
+		stopPeersnap:  make(chan bool, 1),
+		// 10 keyframes in 5 seconds is probably a bit extreme
+		lastThumbnail:       make(chan []byte, 10),
 		startTime:           time.Now().Unix(),
 		totalAudioPackets:   0,
 		totalVideoPackets:   0,
 		clientVendorName:    "",
 		clientVendorVersion: "",
-		// recentVideoPackets:  make([]*rtp.Packet, 0),
-		VideoPackets: make(chan *rtp.Packet, 512),
-		videoSampler: samplebuilder.New(150, &codecs.H264Packet{}, 90000),
-		packetBuffer: make([]*rtp.Packet, 0),
-		Keyframer:    NewKeyframer(),
 	}
 
 	if _, exists := mgr.streams[channelID]; exists {
