@@ -370,6 +370,7 @@ func (h *connHandler) OnVideo(timestamp uint32, payload io.Reader) error {
 
 	var outBuf []byte
 	if video.FrameType == flvtag.FrameTypeKeyFrame {
+		// This fails ffprobe
 		pktnalus, _ := h264joy.SplitNALUs(data)
 		nalus := [][]byte{}
 		nalus = append(nalus, h264joy.Map2arr(h.videoJoyCodec.SPS)...)
@@ -381,12 +382,6 @@ func (h *connHandler) OnVideo(timestamp uint32, payload io.Reader) error {
 		pktnalus, _ := h264joy.SplitNALUs(data)
 		data := h264joy.JoinNALUsAnnexb(pktnalus)
 		outBuf = data
-	}
-
-	if video.FrameType == flvtag.FrameTypeKeyFrame {
-		// Save the last full keyframe for anything we may need, eg thumbnails
-		// h.control.ReportMetadata(h.channelID, control.VideoFrameMetadata(outBuf))
-		h.stream.ReportLastKeyframe(outBuf)
 	}
 
 	// Likely there's more than one set of RTP packets in this read

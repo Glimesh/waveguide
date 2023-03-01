@@ -180,7 +180,6 @@ func (s *WHIPSource) Listen(ctx context.Context) {
 						return
 					}
 					videoTrack.WriteRTP(p)
-					stream.VideoPackets <- p
 					stream.ReportMetadata(control.VideoPacketsMetadata(len(p.Payload)))
 				}
 			}

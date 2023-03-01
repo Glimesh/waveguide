@@ -135,7 +135,6 @@ func (c *connHandler) OnVideo(packet *rtp.Packet) error {
 	// Write the RTP packet immediately, log after
 	err := c.videoTrack.WriteRTP(packet)
 
-	c.stream.VideoPackets <- packet
 	c.stream.ReportMetadata(control.VideoPacketsMetadata(len(packet.Payload)))
 
 	return err

@@ -3,9 +3,7 @@ package control
 import (
 	"errors"
 
-	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v3"
-	"github.com/pion/webrtc/v3/pkg/media/samplebuilder"
 )
 
 type StreamTrack struct {
@@ -22,6 +20,9 @@ type Stream struct {
 	hasSomeVideo bool
 
 	stopHeartbeat chan bool
+	stopPeersnap  chan bool
+
+	lastThumbnail chan []byte
 
 	ChannelID ChannelID
 	StreamID  StreamID
@@ -44,12 +45,6 @@ type Stream struct {
 	audioCodec          string
 	videoHeight         int
 	videoWidth          int
-
-	// recentVideoPackets []*rtp.Packet
-	lastKeyframe []byte
-
-	VideoPackets chan *rtp.Packet
-	videoSampler *samplebuilder.SampleBuilder
 }
 
 func (s *Stream) AddTrack(track webrtc.TrackLocal, codec string) error {
@@ -79,24 +74,6 @@ func (s *Stream) ReportMetadata(metadatas ...Metadata) error {
 	}
 
 	return nil
-}
-
-// ReportLastKeyframe works similar to stream.VideoPackets <- packet, except it's used in situations
-// where we are converting from other video formats and we easily know the keyframes.
-func (s *Stream) ReportLastKeyframe(keyframe []byte) error {
-	s.lastKeyframe = keyframe
-
-	return nil
-}
-
-func (s *Stream) KeyframeCollector() {
-	for {
-		<-s.VideoPackets
-
-		// if h264.IsKeyframePart(p.Payload) {
-		// 	s.videoSampler.Push(p)
-		// }
-	}
 }
 
 type StreamMetadata struct {

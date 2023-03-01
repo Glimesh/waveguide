@@ -244,7 +244,6 @@ func (s *JanusSource) negotiate(sdpString string, pluginUrl string) {
 					panic(err)
 				}
 				videoTrack.WriteRTP(p)
-				stream.VideoPackets <- p
 				stream.ReportMetadata(control.VideoPacketsMetadata(len(p.Payload)))
 			}
 		}
