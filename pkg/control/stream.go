@@ -2,7 +2,12 @@ package control
 
 import (
 	"errors"
+	"fmt"
+	"image"
+	"image/jpeg"
+	"os"
 
+	"github.com/Glimesh/waveguide/pkg/h264"
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v3"
 	"github.com/pion/webrtc/v3/pkg/media/samplebuilder"
@@ -47,6 +52,10 @@ type Stream struct {
 
 	// recentVideoPackets []*rtp.Packet
 	lastKeyframe []byte
+	// rtpBuffer    bytes.Buffer
+
+	packetBuffer []*rtp.Packet
+	Keyframer    *Keyframer
 
 	VideoPackets chan *rtp.Packet
 	videoSampler *samplebuilder.SampleBuilder
@@ -90,13 +99,48 @@ func (s *Stream) ReportLastKeyframe(keyframe []byte) error {
 }
 
 func (s *Stream) KeyframeCollector() {
-	for {
-		<-s.VideoPackets
 
-		// if h264.IsKeyframePart(p.Payload) {
-		// 	s.videoSampler.Push(p)
-		// }
+	// for {
+	// 	p := <-s.VideoPackets
+
+	// 	keyframe := kfer.WriteRTP(p)
+	// 	if keyframe != nil {
+	// 		fmt.Printf("!!! STREAM KEYFRAME !!! %s\n\n", kfer)
+	// 		saveImage(int(p.SequenceNumber), keyframe)
+	// 		os.WriteFile(fmt.Sprintf("%d-stream.h264", p.SequenceNumber), keyframe, 0666)
+	// 		kfer.Reset()
+	// 	}
+	// }
+}
+
+func saveImage(n int, buf []byte) {
+
+	var img image.Image
+	h264dec, err := h264.NewH264Decoder()
+	if err != nil {
+		panic(err)
 	}
+	defer h264dec.Close()
+	img, err = h264dec.Decode(buf)
+	if err != nil {
+		panic(err)
+	}
+	if img == nil {
+		fmt.Println("img is nil")
+		return
+	}
+
+	imgName := fmt.Sprintf("%d.jpg", n)
+	out, _ := os.Create(imgName)
+	// buff := new(bytes.Buffer)
+	err = jpeg.Encode(out, img, &jpeg.Options{
+		Quality: 75,
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println("Saved image:", imgName)
 }
 
 type StreamMetadata struct {

@@ -2,6 +2,7 @@ package control
 
 import (
 	"bytes"
+	"fmt"
 	"image"
 	"image/jpeg"
 	"net/http"
@@ -121,6 +122,9 @@ func (mgr *Control) StartStream(channelID ChannelID) (*Stream, error) {
 		mgr.removeStream(channelID)
 		return &Stream{}, err
 	}
+
+	// ps := Peersnap{}
+	// go ps.Start(stream.ChannelID)
 
 	go mgr.setupHeartbeat(channelID)
 	go stream.KeyframeCollector()
@@ -247,6 +251,14 @@ func (mgr *Control) sendThumbnail(channelID ChannelID) (err error) {
 	var data []byte
 	if len(stream.lastKeyframe) > 0 {
 		data = stream.lastKeyframe
+	} else {
+		keyframe := stream.Keyframer.Keyframe()
+		if len(keyframe) > 0 {
+			fmt.Println("Got data from keyframe")
+			fmt.Println(stream.Keyframer)
+			data = keyframe
+			stream.Keyframer.Reset()
+		}
 	}
 	// else {
 	// 	sample := stream.videoSampler.Pop()
@@ -311,6 +323,8 @@ func (mgr *Control) newStream(channelID ChannelID) (*Stream, error) {
 		// recentVideoPackets:  make([]*rtp.Packet, 0),
 		VideoPackets: make(chan *rtp.Packet, 512),
 		videoSampler: samplebuilder.New(150, &codecs.H264Packet{}, 90000),
+		packetBuffer: make([]*rtp.Packet, 0),
+		Keyframer:    NewKeyframer(),
 	}
 
 	if _, exists := mgr.streams[channelID]; exists {

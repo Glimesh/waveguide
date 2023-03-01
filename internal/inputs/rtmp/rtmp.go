@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 
@@ -362,7 +363,9 @@ func (h *connHandler) OnVideo(timestamp uint32, payload io.Reader) error {
 	// Look at video.AVCPacketType == flvtag.AVCPacketTypeSequenceHeader to figure out sps and pps
 	// Store those in the stream object, then use them later for the keyframes
 	if video.AVCPacketType == flvtag.AVCPacketTypeSequenceHeader {
+		os.WriteFile(fmt.Sprintf("%d-seqhdr.h264", timestamp), data, 0666)
 		h.videoJoyCodec, err = h264joy.FromDecoderConfig(data)
+		fmt.Printf("videoJoyCodec: %#v\n", h.videoJoyCodec)
 		if err != nil {
 			return err
 		}
@@ -370,6 +373,9 @@ func (h *connHandler) OnVideo(timestamp uint32, payload io.Reader) error {
 
 	var outBuf []byte
 	if video.FrameType == flvtag.FrameTypeKeyFrame {
+		// This fails ffprobe
+		os.WriteFile(fmt.Sprintf("%d-raw.h264", timestamp), data, 0666)
+
 		pktnalus, _ := h264joy.SplitNALUs(data)
 		nalus := [][]byte{}
 		nalus = append(nalus, h264joy.Map2arr(h.videoJoyCodec.SPS)...)
@@ -377,6 +383,9 @@ func (h *connHandler) OnVideo(timestamp uint32, payload io.Reader) error {
 		nalus = append(nalus, pktnalus...)
 		data := h264joy.JoinNALUsAnnexb(nalus)
 		outBuf = data
+
+		// This does not
+		os.WriteFile(fmt.Sprintf("%d-nalu.h264", timestamp), outBuf, 0666)
 	} else {
 		pktnalus, _ := h264joy.SplitNALUs(data)
 		data := h264joy.JoinNALUsAnnexb(pktnalus)
