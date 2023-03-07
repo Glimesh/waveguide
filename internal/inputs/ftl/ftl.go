@@ -68,21 +68,24 @@ func (s *FTLSource) Listen(ctx context.Context) {
 }
 
 type connHandler struct {
-	control *control.Control
-	log     logrus.FieldLogger
+	control    *control.Control
+	log        logrus.FieldLogger
+	controlCtx context.Context
 
 	channelID control.ChannelID
 
 	stream     *control.Stream
 	videoTrack *webrtc.TrackLocalStaticRTP
 	audioTrack *webrtc.TrackLocalStaticRTP
+
+	cancel chan bool
 }
 
 func (c *connHandler) OnConnect(channelID ftlproto.ChannelID) error {
 	c.channelID = control.ChannelID(channelID)
 
 	var err error
-	c.stream, err = c.control.StartStream(c.channelID)
+	c.stream, c.controlCtx, err = c.control.StartStream(c.channelID)
 	if err != nil {
 		return err
 	}
@@ -124,6 +127,10 @@ func (c *connHandler) OnPlay(metadata ftlproto.FtlConnectionMetadata) error {
 }
 
 func (c *connHandler) OnAudio(packet *rtp.Packet) error {
+	if c.controlCtx.Err() != nil {
+		return c.controlCtx.Err()
+	}
+
 	err := c.audioTrack.WriteRTP(packet)
 
 	c.stream.ReportMetadata(control.AudioPacketsMetadata(len(packet.Payload)))
@@ -132,6 +139,10 @@ func (c *connHandler) OnAudio(packet *rtp.Packet) error {
 }
 
 func (c *connHandler) OnVideo(packet *rtp.Packet) error {
+	if c.controlCtx.Err() != nil {
+		return c.controlCtx.Err()
+	}
+
 	// Write the RTP packet immediately, log after
 	err := c.videoTrack.WriteRTP(packet)
 
@@ -141,5 +152,9 @@ func (c *connHandler) OnVideo(packet *rtp.Packet) error {
 }
 
 func (c *connHandler) OnClose() {
-	c.control.StopStream(c.channelID)
+	if c.controlCtx.Err() == nil {
+		// This is the FTL => Control cancellation
+		// Only since if we're not the canceller.
+		c.control.StopStream(c.channelID)
+	}
 }

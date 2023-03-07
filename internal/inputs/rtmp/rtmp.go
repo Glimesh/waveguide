@@ -93,7 +93,8 @@ func (s *RTMPSource) Listen(ctx context.Context) {
 
 type connHandler struct {
 	gortmp.DefaultHandler
-	control *control.Control
+	control    *control.Control
+	controlCtx context.Context
 
 	log logrus.FieldLogger
 
@@ -176,7 +177,7 @@ func (h *connHandler) OnPublish(ctx *gortmp.StreamContext, timestamp uint32, cmd
 		return err
 	}
 
-	h.stream, err = h.control.StartStream(h.channelID)
+	h.stream, h.controlCtx, err = h.control.StartStream(h.channelID)
 	if err != nil {
 		h.log.Error(err)
 		return err
@@ -213,7 +214,8 @@ func (h *connHandler) OnClose() {
 	h.stopMetadataCollection <- true
 
 	// We only want to publish the stop if it's ours
-	if h.authenticated {
+	// We also don't want control to stop the stream if we're respond to a stop
+	if h.authenticated && h.controlCtx.Err() == nil {
 		// StopStream mainly calls external services, there's a chance this call can hang for a bit while the other services are processing
 		// However it's not safe to call RemoveStream until this is finished or the pointer wont... exist?
 		if err := h.control.StopStream(h.channelID); err != nil {
@@ -255,6 +257,9 @@ func (h *connHandler) initAudio(clockRate uint32) (err error) {
 func (h *connHandler) OnAudio(timestamp uint32, payload io.Reader) error {
 	if h.errored {
 		return errors.New("stream is not longer authenticated")
+	}
+	if h.controlCtx.Err() != nil {
+		return h.controlCtx.Err()
 	}
 
 	// Convert AAC to opus
@@ -332,6 +337,9 @@ func (h *connHandler) initVideo(clockRate uint32) (err error) {
 func (h *connHandler) OnVideo(timestamp uint32, payload io.Reader) error {
 	if h.errored {
 		return errors.New("stream is not longer authenticated")
+	}
+	if h.controlCtx.Err() != nil {
+		return h.controlCtx.Err()
 	}
 
 	var video flvtag.VideoData

@@ -59,7 +59,7 @@ func (s *FSSource) Listen(ctx context.Context) {
 		panic(videoTrackErr)
 	}
 
-	stream, err := s.control.StartStream(1234)
+	stream, ctx, err := s.control.StartStream(1234)
 	if err != nil {
 		panic(err)
 	}
@@ -87,6 +87,10 @@ func (s *FSSource) Listen(ctx context.Context) {
 		// * works around latency issues with Sleep (see https://github.com/golang/go/issues/44343)
 		ticker := time.NewTicker(h264FrameDuration)
 		for ; true; <-ticker.C {
+			if ctx.Err() != nil {
+				return
+			}
+
 			nal, h264Err := h264.NextNAL()
 			if h264Err == io.EOF {
 				s.log.Info("All video frames parsed and sent")

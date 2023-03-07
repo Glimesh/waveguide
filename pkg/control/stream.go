@@ -1,9 +1,11 @@
 package control
 
 import (
+	"context"
 	"errors"
 
 	"github.com/pion/webrtc/v3"
+	"github.com/sirupsen/logrus"
 )
 
 type StreamTrack struct {
@@ -12,6 +14,11 @@ type StreamTrack struct {
 	Track webrtc.TrackLocal
 }
 type Stream struct {
+	ctx    context.Context
+	cancel context.CancelFunc
+
+	log logrus.FieldLogger
+
 	// authenticated is set after the stream has successfully authed with a remote service
 	authenticated bool
 	// mediaStarted is set after media bytes have come in from the client

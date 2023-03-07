@@ -108,7 +108,7 @@ func (s *WHIPSource) Listen(ctx context.Context) {
 			return
 		}
 
-		stream, err := s.control.StartStream(channelID)
+		stream, ctx, err := s.control.StartStream(channelID)
 		if err != nil {
 			s.log.Error(err)
 			errCustom(w, r, "Problem starting the stream")
@@ -163,6 +163,10 @@ func (s *WHIPSource) Listen(ctx context.Context) {
 			if codec.MimeType == webrtc.MimeTypeOpus {
 				s.log.Info("Got Opus track, sending to audio track")
 				for {
+					if ctx.Err() != nil {
+						return
+					}
+
 					p, _, err := remoteTrack.ReadRTP()
 					if err != nil {
 						s.log.Error(err)
@@ -174,6 +178,10 @@ func (s *WHIPSource) Listen(ctx context.Context) {
 			} else if codec.MimeType == webrtc.MimeTypeH264 {
 				s.log.Info("Got H264 track, sending to video track")
 				for {
+					if ctx.Err() != nil {
+						return
+					}
+
 					p, _, err := remoteTrack.ReadRTP()
 					if err != nil {
 						s.log.Error(err)

@@ -168,7 +168,7 @@ func (s *JanusSource) Listen(ctx context.Context) {
 }
 
 func (s *JanusSource) negotiate(sdpString string, pluginUrl string) {
-	stream, err := s.control.StartStream(control.ChannelID(s.config.ChannelId))
+	stream, ctx, err := s.control.StartStream(control.ChannelID(s.config.ChannelId))
 	if err != nil {
 		panic(err)
 	}
@@ -229,6 +229,10 @@ func (s *JanusSource) negotiate(sdpString string, pluginUrl string) {
 		if codec.MimeType == "audio/opus" {
 			s.log.Info("Got Opus track, sending to audio track")
 			for {
+				if ctx.Err() != nil {
+					return
+				}
+
 				p, _, err := track.ReadRTP()
 				if err != nil {
 					panic(err)
@@ -239,6 +243,10 @@ func (s *JanusSource) negotiate(sdpString string, pluginUrl string) {
 		} else if codec.MimeType == "video/H264" {
 			s.log.Info("Got H264 track, sending to video track")
 			for {
+				if ctx.Err() != nil {
+					return
+				}
+
 				p, _, err := track.ReadRTP()
 				if err != nil {
 					panic(err)

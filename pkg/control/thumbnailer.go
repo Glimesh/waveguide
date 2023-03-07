@@ -7,19 +7,20 @@ import (
 	"net/http"
 
 	"github.com/pion/webrtc/v3"
-	"github.com/sirupsen/logrus"
 )
 
 // Note: This type of functionality will be common in Waveguide
 // However we should not do it like this :D
-func peerSnapper(done <-chan bool, thumbnail chan<- []byte, whepEndpoint string, channelId ChannelID, log logrus.FieldLogger) {
-	log.Info("Started Peersnap")
+func (s *Stream) thumbnailer(whepEndpoint string) error {
+	log := s.log.WithField("app", "peersnap")
+
+	log.Info("Started Thumbnailer")
 	// Create a new PeerConnection
 	peerConnection, err := webrtc.NewPeerConnection(webrtc.Configuration{})
 	if err != nil {
-		log.Error(err)
-		return
+		return err
 	}
+	defer peerConnection.Close()
 
 	peerConnection.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
 		kfer := NewKeyframer()
@@ -27,11 +28,15 @@ func peerSnapper(done <-chan bool, thumbnail chan<- []byte, whepEndpoint string,
 
 		if codec.MimeType == "video/H264" {
 			for {
+				if s.ctx.Err() != nil {
+					return
+				}
+
 				// Read RTP Packets in a loop
 				p, _, readErr := track.ReadRTP()
 				if readErr != nil {
-					log.Error(err)
-					return
+					// Don't kill the thumbnailer after one weird RTP packet
+					continue
 				}
 
 				keyframe := kfer.WriteRTP(p)
@@ -39,7 +44,7 @@ func peerSnapper(done <-chan bool, thumbnail chan<- []byte, whepEndpoint string,
 					// fmt.Printf("!!! PEER KEYFRAME !!! %s\n\n", kfer)
 					// saveImage(int(p.SequenceNumber), keyframe)
 					// os.WriteFile(fmt.Sprintf("%d-peer.h264", p.SequenceNumber), keyframe, 0666)
-					thumbnail <- keyframe
+					s.lastThumbnail <- keyframe
 					kfer.Reset()
 				}
 			}
@@ -47,45 +52,39 @@ func peerSnapper(done <-chan bool, thumbnail chan<- []byte, whepEndpoint string,
 
 	})
 
-	url := fmt.Sprintf("%s/%d", whepEndpoint, channelId)
+	url := fmt.Sprintf("%s/%d", whepEndpoint, s.ChannelID)
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer([]byte{}))
 	if err != nil {
-		log.Error(err)
-		return
+		return err
 	}
 	req.Header.Set("Accept", "application/sdp")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		log.Error(err)
-		return
+		return err
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Error(err)
-		return
+		return err
 	}
 
 	if err = peerConnection.SetRemoteDescription(webrtc.SessionDescription{
 		Type: webrtc.SDPTypeOffer,
 		SDP:  string(body),
 	}); err != nil {
-		log.Error(err)
-		return
+		return err
 	}
 
 	answer, err := peerConnection.CreateAnswer(nil)
 	if err != nil {
-		log.Error(err)
-		return
+		return err
 	}
 
 	// Create channel that is blocked until ICE Gathering is complete
 	gatherComplete := webrtc.GatheringCompletePromise(peerConnection)
 
 	if err = peerConnection.SetLocalDescription(answer); err != nil {
-		log.Error(err)
-		return
+		return err
 	}
 
 	// Block until ICE Gathering is complete, disabling trickle ICE
@@ -96,17 +95,16 @@ func peerSnapper(done <-chan bool, thumbnail chan<- []byte, whepEndpoint string,
 	answerSdp := peerConnection.LocalDescription().SDP
 	req2, err := http.NewRequest("POST", resp.Header.Get("location"), bytes.NewBufferString(answerSdp))
 	if err != nil {
-		log.Error(err)
-		return
+		return err
 	}
 	req2.Header.Set("Accept", "application/sdp")
 	_, err = http.DefaultClient.Do(req2)
 	if err != nil {
-		log.Error(err)
-		return
+		return err
 	}
 
-	<-done
-	log.Info("Killing peersnap")
-	peerConnection.Close()
+	<-s.ctx.Done()
+	log.Info("Ending Thumbnailer")
+
+	return nil
 }

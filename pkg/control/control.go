@@ -2,6 +2,7 @@ package control
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"image"
 	"image/jpeg"
@@ -98,10 +99,10 @@ func (mgr *Control) Authenticate(channelID ChannelID, streamKey StreamKey) error
 	return nil
 }
 
-func (mgr *Control) StartStream(channelID ChannelID) (*Stream, error) {
+func (mgr *Control) StartStream(channelID ChannelID) (*Stream, context.Context, error) {
 	stream, err := mgr.newStream(channelID)
 	if err != nil {
-		return &Stream{}, err
+		return &Stream{}, stream.ctx, err
 	}
 
 	mgr.log.Infof("Starting stream for %s", channelID)
@@ -109,24 +110,30 @@ func (mgr *Control) StartStream(channelID ChannelID) (*Stream, error) {
 	streamID, err := mgr.service.StartStream(channelID)
 	if err != nil {
 		mgr.removeStream(channelID)
-		return &Stream{}, err
+		return &Stream{}, stream.ctx, err
 	}
 
 	stream.StreamID = streamID
 
 	err = mgr.orchestrator.StartStream(stream.ChannelID, stream.StreamID)
 	if err != nil {
-		mgr.removeStream(channelID)
-		return &Stream{}, err
+		mgr.StopStream(channelID)
+		return &Stream{}, stream.ctx, err
 	}
 
 	go mgr.setupHeartbeat(channelID)
 
 	// Really gross, I'm sorry.
 	whepEndpoint := fmt.Sprintf("%s/whep/endpoint", mgr.HttpServerUrl())
-	go peerSnapper(stream.stopPeersnap, stream.lastThumbnail, whepEndpoint, channelID, mgr.log.WithField("channel_id", channelID).WithField("app", "peersnap"))
+	go func() {
+		err := stream.thumbnailer(whepEndpoint)
+		if err != nil {
+			stream.log.Error(err)
+			mgr.StopStream(channelID)
+		}
+	}()
 
-	return stream, err
+	return stream, stream.ctx, err
 }
 
 func (mgr *Control) StopStream(channelID ChannelID) (err error) {
@@ -134,7 +141,10 @@ func (mgr *Control) StopStream(channelID ChannelID) (err error) {
 	if err != nil {
 		return err
 	}
-	mgr.log.Infof("Stopping stream for %s", channelID)
+	stream.log.Infof("Stopping stream")
+
+	// Cancel the context
+	// stream.cancel()
 
 	stream.stopHeartbeat <- true
 	stream.stopPeersnap <- true
@@ -145,14 +155,23 @@ func (mgr *Control) StopStream(channelID ChannelID) (err error) {
 	orchestratorErr := mgr.orchestrator.StopStream(stream.ChannelID, stream.StreamID)
 	controlErr := mgr.removeStream(channelID)
 
+	// Cancel stream context to tell the video ingestor to stop work
+	stream.cancel()
+
 	if serviceErr != nil {
+		stream.log.Error(serviceErr)
 		return serviceErr
 	}
 	if orchestratorErr != nil {
+		stream.log.Error(orchestratorErr)
 		return orchestratorErr
 	}
+	if controlErr != nil {
+		stream.log.Error(controlErr)
+		return controlErr
+	}
 
-	return controlErr
+	return nil
 }
 
 var ErrHeartbeatThumbnail = errors.New("error sending thumbnail")
@@ -163,30 +182,34 @@ func (mgr *Control) setupHeartbeat(channelID ChannelID) {
 	ticker := time.NewTicker(15 * time.Second)
 	go func() {
 		tickFailed := 0
-		streamLogger := mgr.log.WithField("channel_id", channelID)
+
+		stream, err := mgr.getStream(channelID)
+		if err != nil {
+			return
+		}
 
 		for {
 			select {
 			case <-ticker.C:
-				streamLogger.Infof("Collecting metadata tickFailed=%d", tickFailed)
+				stream.log.Infof("Collecting metadata tickFailed=%d", tickFailed)
 				var err error
 				hasErrors := false
 
 				err = mgr.sendThumbnail(channelID)
 				if err != nil {
-					streamLogger.Error(errors.Wrap(err, ErrHeartbeatThumbnail.Error()))
+					stream.log.Error(errors.Wrap(err, ErrHeartbeatThumbnail.Error()))
 					hasErrors = true
 				}
 
 				err = mgr.sendMetadata(channelID)
 				if err != nil {
-					streamLogger.Error(errors.Wrap(err, ErrHeartbeatSendMetadata.Error()))
+					stream.log.Error(errors.Wrap(err, ErrHeartbeatSendMetadata.Error()))
 					hasErrors = true
 				}
 
 				err = mgr.orchestrator.Heartbeat(channelID)
 				if err != nil {
-					streamLogger.Error(errors.Wrap(err, ErrHeartbeatOrchestratorHeartbeat.Error()))
+					stream.log.Error(errors.Wrap(err, ErrHeartbeatOrchestratorHeartbeat.Error()))
 					hasErrors = true
 				}
 
@@ -200,7 +223,7 @@ func (mgr *Control) setupHeartbeat(channelID ChannelID) {
 
 				// Look for 3 consecutive failures
 				if tickFailed >= 5 {
-					streamLogger.Warn("Stopping stream due to excessive heartbeat errors")
+					stream.log.Warn("Stopping stream due to excessive heartbeat errors")
 					mgr.StopStream(channelID)
 					ticker.Stop()
 					return
@@ -294,7 +317,13 @@ func (mgr *Control) sendThumbnail(channelID ChannelID) (err error) {
 }
 
 func (mgr *Control) newStream(channelID ChannelID) (*Stream, error) {
+	ctx, cancel := context.WithCancel(context.Background())
 	stream := &Stream{
+		ctx:    ctx,
+		cancel: cancel,
+
+		log: mgr.log.WithField("channel_id", channelID),
+
 		authenticated: true,
 		mediaStarted:  false,
 		ChannelID:     channelID,
@@ -322,7 +351,10 @@ func (mgr *Control) removeStream(id ChannelID) error {
 	if _, exists := mgr.streams[id]; !exists {
 		return errors.New("RemoveStream stream does not exist in state")
 	}
+
 	delete(mgr.streams, id)
+	delete(mgr.metadataCollectors, id)
+
 	return nil
 }
 
