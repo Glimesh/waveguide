@@ -142,7 +142,7 @@ func (s *WHIPSource) Listen(ctx context.Context) {
 		stream.ReportMetadata(
 			control.AudioCodecMetadata(webrtc.MimeTypeOpus),
 			control.VideoCodecMetadata(webrtc.MimeTypeH264),
-			control.ClientVendorNameMetadata("waveguide-janus-input"),
+			control.ClientVendorNameMetadata("waveguide-whip-input"),
 			control.ClientVendorVersionMetadata("0.0.1"),
 		)
 

@@ -1,9 +1,4 @@
 
-[input.janus]
-type = "janus"
-address = "https://do-nyc3-edge1.kjfk.live.glimesh.tv/janus"
-channel_id = 16791
-
 [input.rtmp]
 type = "rtmp"
 address = ":1935"
@@ -11,11 +6,6 @@ address = ":1935"
 [input.ftl]
 type = "ftl"
 address = ":8084"
-
-# [input.fs]
-# type = "fs"
-# video_file = "test/output.h264"
-# audio_file = "test/output.opus"
 
 [output.whep]
 type = "whep"
@@ -30,16 +20,5 @@ type = "dummy"
 [control]
 service = "dummy"
 orchestrator = "dummy"
-
-# In the future, pipes will be added to control media directions
-# [[pipes]]
-# input = "janus"
-# output = "whep"
-
-# [[pipes]]
-# input = "rtmp"
-# output = "whep"
-
-# [[pipes]]
-# input = "ftl"
-# output = "whep"
+http_server_type = "http"
+http_address = "localhost:8091"
