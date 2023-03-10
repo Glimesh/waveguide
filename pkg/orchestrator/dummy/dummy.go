@@ -1,4 +1,4 @@
-package dummy_orchestrator
+package dummy
 
 import (
 	"github.com/Glimesh/waveguide/pkg/control"

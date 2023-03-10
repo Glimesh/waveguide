@@ -25,33 +25,46 @@ const PC_TIMEOUT = time.Minute * 5
 //go:embed public/stream.html
 var streamTemplateContent string
 
-type WHEPConfig struct {
-	// Listen address of the webserver
-	Address       string
-	Server        string `mapstructure:"server"`
-	Https         bool
-	HttpsHostname string `mapstructure:"https_hostname"`
-	HttpsCert     string `mapstructure:"https_cert"`
-	HttpsKey      string `mapstructure:"https_key"`
-}
+// type WHEPConfig struct {
+// 	// Listen address of the webserver
+// 	Https         bool
+// 	HttpsHostname string `mapstructure:"https_hostname"`
+// 	HttpsCert     string `mapstructure:"https_cert"`
+// 	HttpsKey      string `mapstructure:"https_key"`
+// }
 
 type WHEPServer struct {
 	log     logrus.FieldLogger
-	config  WHEPConfig
 	control *control.Control
 
 	peerConnectionsMutex sync.RWMutex
 	peerConnections      map[string]*webrtc.PeerConnection
 	debugChannels        map[string]*webrtc.DataChannel
+
+	Address string
+	Server  string `mapstructure:"server"`
+
+	HTTPS         bool
+	HTTPSHostname string `mapstructure:"https_hostname"`
+	HTTPSCert     string `mapstructure:"https_cert"`
+	HTTPSKey      string `mapstructure:"https_key"`
 }
 
-func New(config WHEPConfig) *WHEPServer {
-	return &WHEPServer{
-		config:               config,
+func New(address, server string, opts ...Options) *WHEPServer {
+	srv := WHEPServer{
+		Address: address,
+		Server:  server,
+
 		peerConnectionsMutex: sync.RWMutex{},
 		peerConnections:      make(map[string]*webrtc.PeerConnection),
 		debugChannels:        make(map[string]*webrtc.DataChannel),
 	}
+
+	for _, opt := range opts {
+		opt(&srv)
+	}
+
+	return &srv
 }
 
 func (s *WHEPServer) SetControl(ctrl *control.Control) {

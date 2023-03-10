@@ -34,18 +34,15 @@ const (
 
 type RTMPSource struct {
 	log     logrus.FieldLogger
-	config  RTMPSourceConfig
 	control *control.Control
-}
 
-type RTMPSourceConfig struct {
 	// Listen address of the RTMP server in the ip:port format
 	Address string
 }
 
-func New(config RTMPSourceConfig) *RTMPSource {
+func New(address string) *RTMPSource {
 	return &RTMPSource{
-		config: config,
+		Address: address,
 	}
 }
 
@@ -58,7 +55,7 @@ func (s *RTMPSource) SetLogger(log logrus.FieldLogger) {
 }
 
 func (s *RTMPSource) Listen(ctx context.Context) {
-	tcpAddr, err := net.ResolveTCPAddr("tcp", s.config.Address)
+	tcpAddr, err := net.ResolveTCPAddr("tcp", s.Address)
 	if err != nil {
 		s.log.Errorf("Failed: %+v", err)
 	}
@@ -68,7 +65,7 @@ func (s *RTMPSource) Listen(ctx context.Context) {
 		s.log.Errorf("Failed: %+v", err)
 	}
 
-	s.log.Infof("Starting RTMP Server on %s", s.config.Address)
+	s.log.Infof("Starting RTMP Server on %s", s.Address)
 
 	srv := gortmp.NewServer(&gortmp.ServerConfig{
 		OnConnect: func(conn net.Conn) (io.ReadWriteCloser, *gortmp.ConnConfig) {

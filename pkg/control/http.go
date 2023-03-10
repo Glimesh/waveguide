@@ -12,31 +12,31 @@ import (
 // This http server should combine any of the inputs / outputs http endpoints into a singular server
 
 func (ctrl *Control) StartHTTPServer() {
-	switch ctrl.config.HttpServerType {
+	switch ctrl.HTTPServerType {
 	case "acme":
-		ctrl.log.Infof("Starting ACME http server on %s:443", ctrl.config.HttpsHostname)
+		ctrl.log.Infof("Starting ACME http server on %s:443", ctrl.HTTPSHostname)
 		ctrl.log.Fatal(http.Serve(
-			autocert.NewListener(ctrl.config.HttpsHostname),
+			autocert.NewListener(ctrl.HTTPSHostname),
 			logRequest(ctrl.log, ctrl.httpMux),
 		))
 	case "https":
-		ctrl.log.Infof("Starting https server on %s", ctrl.config.HttpAddress)
+		ctrl.log.Infof("Starting https server on %s", ctrl.HTTPAddress)
 		ctrl.log.Fatal(httpsServer(
-			ctrl.config.HttpAddress,
-			ctrl.config.HttpsCert,
-			ctrl.config.HttpsKey,
+			ctrl.HTTPAddress,
+			ctrl.HTTPSCert,
+			ctrl.HTTPSKey,
 			ctrl.log,
 			ctrl.httpMux,
 		))
 	case "http":
-		ctrl.log.Infof("Starting http server on %s", ctrl.config.HttpAddress)
+		ctrl.log.Infof("Starting http server on %s", ctrl.HTTPAddress)
 		ctrl.log.Fatal(httpServer(
-			ctrl.config.HttpAddress,
+			ctrl.HTTPAddress,
 			ctrl.log,
 			ctrl.httpMux,
 		))
 	default:
-		ctrl.log.Fatalf("unknown http_server_type server option %s", ctrl.config.HttpServerType)
+		ctrl.log.Fatalf("unknown http_server_type server option %s", ctrl.HTTPServerType)
 	}
 }
 
@@ -47,12 +47,12 @@ func (ctrl *Control) RegisterHandleFunc(pattern string, handler func(http.Respon
 func (ctrl *Control) HttpServerUrl() string {
 	var protocol string
 	var host string
-	if ctrl.config.HttpServerType == "acme" || ctrl.config.HttpServerType == "https" {
+	if ctrl.HTTPServerType == "acme" || ctrl.HTTPServerType == "https" {
 		protocol = "https"
-		host = ctrl.config.HttpsHostname
+		host = ctrl.HTTPSHostname
 	} else {
 		protocol = "http"
-		host = ctrl.config.HttpAddress
+		host = ctrl.HTTPAddress
 	}
 
 	return fmt.Sprintf("%s://%s", protocol, host)

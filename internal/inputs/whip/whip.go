@@ -20,23 +20,22 @@ const PC_TIMEOUT = time.Minute * 5
 
 type WHIPSource struct {
 	log     logrus.FieldLogger
-	config  WHIPSourceConfig
 	control *control.Control
 
 	peerConnectionsMutex sync.RWMutex
 	peerConnections      map[control.ChannelID]*webrtc.PeerConnection
-}
 
-type WHIPSourceConfig struct {
 	// Listen address of the FS server in the ip:port format
 	Address   string
 	VideoFile string `mapstructure:"video_file"`
 	AudioFile string `mapstructure:"audio_file"`
 }
 
-func New(config WHIPSourceConfig) *WHIPSource {
+func New(address, videoFile, audioFile string) *WHIPSource {
 	return &WHIPSource{
-		config:               config,
+		Address:              address,
+		VideoFile:            videoFile,
+		AudioFile:            audioFile,
 		peerConnectionsMutex: sync.RWMutex{},
 		peerConnections:      make(map[control.ChannelID]*webrtc.PeerConnection),
 	}
