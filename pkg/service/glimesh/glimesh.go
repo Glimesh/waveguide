@@ -20,22 +20,18 @@ type Service struct {
 
 	client     *graphql.Client
 	httpClient *http.Client
-	config     *Config
 
 	log logrus.FieldLogger
-}
 
-type Config struct {
 	Endpoint     string
 	ClientID     string `mapstructure:"client_id"`
 	ClientSecret string `mapstructure:"client_secret"`
 }
 
-func New(config Config) *Service {
+func New(endpoint, clientID, clientSecret string) *Service {
 	return &Service{
 		tokenUrl: "/api/oauth/token",
 		apiUrl:   "/api/graph",
-		config:   &config,
 	}
 }
 
@@ -49,13 +45,13 @@ func (s *Service) Name() string {
 
 func (s *Service) Connect() error {
 	config := clientcredentials.Config{
-		ClientID:     s.config.ClientID,
-		ClientSecret: s.config.ClientSecret,
-		TokenURL:     fmt.Sprintf("%s%s", s.config.Endpoint, s.tokenUrl),
+		ClientID:     s.ClientID,
+		ClientSecret: s.ClientSecret,
+		TokenURL:     fmt.Sprintf("%s%s", s.Endpoint, s.tokenUrl),
 		Scopes:       []string{"streamkey"},
 	}
 	s.httpClient = config.Client(context.Background())
-	s.client = graphql.NewClient(fmt.Sprintf("%s%s", s.config.Endpoint, s.apiUrl), s.httpClient)
+	s.client = graphql.NewClient(fmt.Sprintf("%s%s", s.Endpoint, s.apiUrl), s.httpClient)
 
 	return nil
 }
@@ -143,7 +139,7 @@ func (s *Service) SendJpegPreviewImage(streamID control.StreamID, img []byte) er
 		}
 	}`
 
-	return uploadThumbnail(s.httpClient, fmt.Sprintf("%s%s", s.config.Endpoint, s.apiUrl), fmt.Sprintf(query, streamID), img)
+	return uploadThumbnail(s.httpClient, fmt.Sprintf("%s%s", s.Endpoint, s.apiUrl), fmt.Sprintf(query, streamID), img)
 }
 
 func uploadThumbnail(client *http.Client, url string, query string, image []byte) error {

@@ -9,23 +9,20 @@ import (
 )
 
 func New(cfg config.Config, logger *logrus.Logger) control.Service {
+	svcCfg := cfg.Service
 	var svc control.Service
 
-	switch cfg.Service.Type {
+	switch svcCfg.Type {
 	case "dummy":
 		svc = dummy.New(dummy.Config{})
 	case "glimesh":
-		svc = glimesh.New(glimesh.Config{
-			Endpoint:     cfg.Service.Endpoint,
-			ClientID:     cfg.Service.ClientID,
-			ClientSecret: cfg.Service.ClientSecret,
-		})
+		svc = glimesh.New(svcCfg.Endpoint, svcCfg.ClientID, svcCfg.ClientSecret)
 	default:
 		panic("unsupported service type")
 	}
 
 	svc.SetLogger(logger.WithFields(logrus.Fields{
-		"orchestrator": svc.Name(),
+		"service": svc.Name(),
 	}))
 
 	return svc

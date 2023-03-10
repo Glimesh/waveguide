@@ -17,12 +17,7 @@ func New(cfg config.Config, hostname string, logger *logrus.Logger) control.Orch
 	case "dummy":
 		or = dummy.New(dummy.Config{}, hostname)
 	case "rt":
-		or = rt.New(
-			hostname,
-			orCfg.Endpoint,
-			orCfg.Key,
-			orCfg.WHEPEndpoint,
-		)
+		or = rt.New(hostname, orCfg.Endpoint, orCfg.Key, orCfg.WHEPEndpoint)
 		// case "ftl":
 		// TODO: ftl orchestrator
 	default:
