@@ -29,7 +29,7 @@ func main() {
 
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("failed to read config: %w", err)
+		log.Fatalf("failed to read config: %v", err)
 	}
 
 	// Temporary for debugging
@@ -39,18 +39,18 @@ func main() {
 
 	level, err := logrus.ParseLevel(cfg.Control.LogLevel)
 	if err != nil {
-		log.Fatalf("failed to parse log level: %w", err)
+		log.Fatalf("failed to parse log level: %v", err)
 	}
 	log.SetLevel(level)
 
 	svc := service.New(cfg, log)
 	if err := svc.Connect(); err != nil {
-		log.Fatalf("failed to connect service: %w", err)
+		log.Fatalf("failed to connect service: %v", err)
 	}
 
 	or := orchestrator.New(cfg, hostname, log)
 	if err := or.Connect(); err != nil {
-		log.Fatalf("failed to connect orchestrator: %w", err)
+		log.Fatalf("failed to connect orchestrator: %v", err)
 	}
 
 	ctrl := control.New(cfg, hostname, svc, or, log)
@@ -59,13 +59,13 @@ func main() {
 
 	in, err := inputs.New(cfg, ctrl, log)
 	if err != nil {
-		log.Fatalf("failed to create inputs: %w", err)
+		log.Fatalf("failed to create inputs: %v", err)
 	}
 	in.Start(ctx)
 
 	out, err := outputs.New(cfg, ctrl, log)
 	if err != nil {
-		log.Fatalf("failed to create outputs: %w", err)
+		log.Fatalf("failed to create outputs: %v", err)
 	}
 	out.Start(ctx)
 
