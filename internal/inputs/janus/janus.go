@@ -17,21 +17,19 @@ import (
 
 type JanusSource struct {
 	log     logrus.FieldLogger
-	config  JanusSourceConfig
 	control *control.Control
 
 	channelID control.ChannelID
-}
 
-type JanusSourceConfig struct {
 	// Address to connect to for Janus
 	Address   string
-	ChannelId int `mapstructure:"channel_id"`
+	ChannelID int `mapstructure:"channel_id"`
 }
 
-func New(config JanusSourceConfig) control.Input {
+func New(address string, channelID int) control.Input {
 	return &JanusSource{
-		config: config,
+		Address:   address,
+		ChannelID: channelID,
 	}
 }
 
@@ -63,16 +61,16 @@ type janusFtlOfferResponse struct {
 }
 
 func (s *JanusSource) Listen(ctx context.Context) {
-	s.log.Infof("Connecting to janus=%s for channel_id=%d", s.config.Address, s.config.ChannelId)
+	s.log.Infof("Connecting to janus=%s for channel_id=%d", s.Address, s.ChannelID)
 
-	s.channelID = control.ChannelID(s.config.ChannelId)
+	s.channelID = control.ChannelID(s.ChannelID)
 
 	values := map[string]string{"janus": "create", "transaction": randString()}
 
 	jsonValue, _ := json.Marshal(values)
 
 	// Initial negotiation
-	resp, err := http.Post(s.config.Address, "application/json", bytes.NewBuffer(jsonValue))
+	resp, err := http.Post(s.Address, "application/json", bytes.NewBuffer(jsonValue))
 	if err != nil {
 		panic(err)
 	}
@@ -82,7 +80,7 @@ func (s *JanusSource) Listen(ctx context.Context) {
 		panic(err)
 	}
 
-	sessionUrl := fmt.Sprintf("%s/%d", s.config.Address, createResponse.Data.Id)
+	sessionUrl := fmt.Sprintf("%s/%d", s.Address, createResponse.Data.Id)
 	// Keepalive for the session
 	go func() {
 		// ticker := time.NewTicker(30 * time.Second)
@@ -133,7 +131,7 @@ func (s *JanusSource) Listen(ctx context.Context) {
 			ChannelID int    `json:"channelId"`
 		}{
 			Request:   "watch",
-			ChannelID: s.config.ChannelId,
+			ChannelID: s.ChannelID,
 		},
 	})
 	_, err = http.Post(pluginUrl, "application/json", bytes.NewBuffer(watchRequest))
@@ -168,7 +166,7 @@ func (s *JanusSource) Listen(ctx context.Context) {
 }
 
 func (s *JanusSource) negotiate(sdpString string, pluginUrl string) {
-	stream, ctx, err := s.control.StartStream(control.ChannelID(s.config.ChannelId))
+	stream, ctx, err := s.control.StartStream(control.ChannelID(s.ChannelID))
 	if err != nil {
 		panic(err)
 	}

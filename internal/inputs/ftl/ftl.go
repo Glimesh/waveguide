@@ -13,17 +13,14 @@ import (
 
 type FTLSource struct {
 	log     logrus.FieldLogger
-	config  FTLSourceConfig
 	control *control.Control
-}
 
-type FTLSourceConfig struct {
 	Address string
 }
 
-func New(config FTLSourceConfig) *FTLSource {
+func New(address string) *FTLSource {
 	return &FTLSource{
-		config: config,
+		Address: address,
 	}
 }
 
@@ -36,7 +33,7 @@ func (s *FTLSource) SetLogger(log logrus.FieldLogger) {
 }
 
 func (s *FTLSource) Listen(ctx context.Context) {
-	tcpAddr, err := net.ResolveTCPAddr("tcp", s.config.Address)
+	tcpAddr, err := net.ResolveTCPAddr("tcp", s.Address)
 	if err != nil {
 		s.log.Errorf("Failed: %+v", err)
 		return
@@ -48,7 +45,7 @@ func (s *FTLSource) Listen(ctx context.Context) {
 		return
 	}
 
-	s.log.Infof("Starting FTL Server on %s", s.config.Address)
+	s.log.Infof("Starting FTL Server on %s", s.Address)
 
 	srv := ftlproto.NewServer(&ftlproto.ServerConfig{
 		Log: s.log,

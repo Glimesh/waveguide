@@ -15,20 +15,19 @@ import (
 
 type FSSource struct {
 	log     logrus.FieldLogger
-	config  FSSourceConfig
 	control *control.Control
-}
 
-type FSSourceConfig struct {
 	// Listen address of the FS server in the ip:port format
 	Address   string
 	VideoFile string `mapstructure:"video_file"`
 	AudioFile string `mapstructure:"audio_file"`
 }
 
-func New(config FSSourceConfig) *FSSource {
+func New(address, videoFile, audioFile string) *FSSource {
 	return &FSSource{
-		config: config,
+		Address:   address,
+		VideoFile: videoFile,
+		AudioFile: audioFile,
 	}
 }
 
@@ -41,13 +40,13 @@ func (s *FSSource) SetLogger(log logrus.FieldLogger) {
 }
 
 func (s *FSSource) Listen(ctx context.Context) {
-	s.log.Infof("Reading from FS for video=%s and audio=%s", s.config.VideoFile, s.config.AudioFile)
+	s.log.Infof("Reading from FS for video=%s and audio=%s", s.VideoFile, s.AudioFile)
 
 	// Assert that we have an audio or video file
-	_, err := os.Stat(s.config.VideoFile)
+	_, err := os.Stat(s.VideoFile)
 	haveVideoFile := !os.IsNotExist(err)
 
-	_, err = os.Stat(s.config.AudioFile)
+	_, err = os.Stat(s.AudioFile)
 	haveAudioFile := !os.IsNotExist(err)
 
 	if !haveAudioFile && !haveVideoFile {
@@ -67,7 +66,7 @@ func (s *FSSource) Listen(ctx context.Context) {
 
 	go func() {
 		// Open a H264 file and start reading using our IVFReader
-		file, h264Err := os.Open(s.config.VideoFile)
+		file, h264Err := os.Open(s.VideoFile)
 		if h264Err != nil {
 			panic(h264Err)
 		}

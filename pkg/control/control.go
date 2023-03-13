@@ -11,6 +11,7 @@ import (
 
 	"github.com/pkg/errors"
 
+	"github.com/Glimesh/waveguide/config"
 	"github.com/Glimesh/waveguide/pkg/h264"
 	"github.com/sirupsen/logrus"
 )
@@ -28,27 +29,37 @@ type Control struct {
 	streams            map[ChannelID]*Stream
 	metadataCollectors map[ChannelID]chan bool
 
-	config Config
-
 	httpMux *http.ServeMux
-}
 
-type Config struct {
 	Hostname       string
-	HttpServerType string `mapstructure:"http_server_type"`
-	HttpAddress    string `mapstructure:"http_address"`
-	Https          bool
-	HttpsHostname  string `mapstructure:"https_hostname"`
-	HttpsCert      string `mapstructure:"https_cert"`
-	HttpsKey       string `mapstructure:"https_key"`
+	HTTPServerType string `mapstructure:"http_server_type"`
+	HTTPAddress    string `mapstructure:"http_address"`
+	HTTPS          bool
+	HTTPSHostname  string `mapstructure:"https_hostname"`
+	HTTPSCert      string `mapstructure:"https_cert"`
+	HTTPSKey       string `mapstructure:"https_key"`
 }
 
-func New(config Config) *Control {
+func New(cfg config.Config, hostname string, svc Service, or Orchestrator, logger *logrus.Logger) *Control {
+	httpCfg := cfg.Control
+
 	return &Control{
-		config:             config,
 		streams:            make(map[ChannelID]*Stream),
 		metadataCollectors: make(map[ChannelID]chan bool),
 		httpMux:            http.NewServeMux(),
+		service:            svc,
+		orchestrator:       or,
+		log: logger.WithFields(logrus.Fields{
+			"control": "waveguide",
+		}),
+
+		Hostname: hostname,
+
+		HTTPServerType: httpCfg.HTTPServerType,
+		HTTPAddress:    httpCfg.Address,
+		HTTPSHostname:  httpCfg.HTTPSHostname,
+		HTTPSCert:      httpCfg.HTTPSCert,
+		HTTPSKey:       httpCfg.HTTPSKey,
 	}
 }
 
@@ -247,7 +258,7 @@ func (mgr *Control) sendMetadata(channelID ChannelID) error {
 
 	return mgr.service.UpdateStreamMetadata(stream.StreamID, StreamMetadata{
 		AudioCodec:        stream.audioCodec,
-		IngestServer:      mgr.config.Hostname,
+		IngestServer:      mgr.Hostname,
 		IngestViewers:     0,
 		LostPackets:       0, // Don't exist
 		NackPackets:       0, // Don't exist

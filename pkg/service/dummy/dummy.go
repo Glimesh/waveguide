@@ -1,4 +1,4 @@
-package dummy_service
+package dummy
 
 import (
 	"crypto/sha256"

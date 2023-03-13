@@ -1,4 +1,4 @@
-package rt_orchestrator
+package rt
 
 import (
 	"fmt"
@@ -13,26 +13,24 @@ import (
 type Client struct {
 	hostname string
 
-	config *Config
-	log    logrus.FieldLogger
+	log logrus.FieldLogger
 
 	connected bool
-}
 
-type Config struct {
 	// RTRouterEndpoint is the URL of a public RTRouter
 	Endpoint string
 	// Key is the secret key to be used for stateful changes
 	Key string
-
 	// Needs to be hardcoded for now...
-	WhepEndpoint string `mapstructure:"whep_endpoint"`
+	WHEPEndpoint string `mapstructure:"whep_endpoint"`
 }
 
-func New(config Config, hostname string) *Client {
+func New(hostname, endpoint, key, whepEndpoint string) *Client {
 	return &Client{
-		hostname: hostname,
-		config:   &config,
+		hostname:     hostname,
+		Endpoint:     endpoint,
+		Key:          key,
+		WHEPEndpoint: whepEndpoint,
 	}
 }
 
@@ -71,7 +69,7 @@ func (client *Client) StartStream(channelID control.ChannelID, streamID control.
 		return err
 	}
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Add("Authorization", client.config.Key)
+	req.Header.Add("Authorization", client.Key)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -93,7 +91,7 @@ func (client *Client) StopStream(channelID control.ChannelID, streamID control.S
 		return err
 	}
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Add("Authorization", client.config.Key)
+	req.Header.Add("Authorization", client.Key)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -116,7 +114,7 @@ func (client *Client) Heartbeat(channelID control.ChannelID) error {
 		return err
 	}
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Add("Authorization", client.config.Key)
+	req.Header.Add("Authorization", client.Key)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -131,9 +129,9 @@ func (client *Client) Heartbeat(channelID control.ChannelID) error {
 }
 
 func (client *Client) routerEndpoint(path string) string {
-	return fmt.Sprintf("%s/%s", client.config.Endpoint, path)
+	return fmt.Sprintf("%s/%s", client.Endpoint, path)
 }
 
 func (client *Client) channelEndpoint(channelID control.ChannelID) string {
-	return fmt.Sprintf("%s/whep/endpoint/%d", client.config.WhepEndpoint, channelID)
+	return fmt.Sprintf("%s/whep/endpoint/%d", client.WHEPEndpoint, channelID)
 }

@@ -39,8 +39,6 @@ type Config struct {
 	RegionCode string
 	// Hostname for ourselves, so edges know how to reach us
 	Hostname string
-	// Logger for orchestrator client messages
-	Logger logrus.FieldLogger
 	// Handler for callbacks
 	Callbacks Callbacks
 }
@@ -56,6 +54,10 @@ func (client *Client) Name() string {
 	return "FTL Orchestrator"
 }
 
+func (client *Client) SetLogger(log logrus.FieldLogger) {
+	client.logger = log
+}
+
 func (client *Client) Connect() error {
 	transport, err := net.Dial("tcp", client.config.Address)
 	if err != nil {
@@ -66,9 +68,7 @@ func (client *Client) Connect() error {
 	client.lastMessageID = 1
 	client.connected = true
 
-	if client.config.Logger != nil {
-		client.logger = client.config.Logger
-	} else {
+	if client.logger == nil {
 		client.logger = logrus.New()
 	}
 

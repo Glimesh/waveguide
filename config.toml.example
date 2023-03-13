@@ -1,20 +1,25 @@
+[input]
 
-[input.rtmp]
+[[input.sources]]
 type = "rtmp"
 address = ":1935"
 
-[input.ftl]
+[[input.sources]]
 type = "ftl"
 address = ":8084"
 
-[output.whep]
+
+[output]
+
+[[output.sources]]
 type = "whep"
 address = ":8091"
 
-[service.dummy]
+
+[service]
 type = "dummy"
 
-[orchestrator.dummy]
+[orchestrator]
 type = "dummy"
 
 [control]

@@ -7,20 +7,17 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type HLSConfig struct {
+type HLSServer struct {
+	log     logrus.FieldLogger
+	control *control.Control
+
 	// Listen address of the HLS webserver
 	Address string
 }
 
-type HLSServer struct {
-	log     logrus.FieldLogger
-	config  HLSConfig
-	control *control.Control
-}
-
-func New(config HLSConfig) *HLSServer {
+func New(address string) *HLSServer {
 	return &HLSServer{
-		config: config,
+		Address: address,
 	}
 }
 
@@ -33,7 +30,7 @@ func (s *HLSServer) SetLogger(log logrus.FieldLogger) {
 }
 
 func (s *HLSServer) Listen(ctx context.Context) {
-	s.log.Infof("Starting HLS Server on %s", s.config.Address)
+	s.log.Infof("Starting HLS Server on %s", s.Address)
 
 	// Basically what the HLS server needs to do is:
 	// When a new stream is added:
