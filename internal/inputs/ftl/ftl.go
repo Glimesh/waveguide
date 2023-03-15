@@ -6,6 +6,7 @@ import (
 
 	"github.com/Glimesh/waveguide/pkg/control"
 	ftlproto "github.com/Glimesh/waveguide/pkg/protocols/ftl"
+	"github.com/Glimesh/waveguide/pkg/types"
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v3"
 	"github.com/sirupsen/logrus"
@@ -69,7 +70,7 @@ type connHandler struct {
 	log        logrus.FieldLogger
 	controlCtx context.Context
 
-	channelID control.ChannelID
+	channelID types.ChannelID
 
 	stream     *control.Stream
 	videoTrack *webrtc.TrackLocalStaticRTP
@@ -79,7 +80,7 @@ type connHandler struct {
 }
 
 func (c *connHandler) OnConnect(channelID ftlproto.ChannelID) error {
-	c.channelID = control.ChannelID(channelID)
+	c.channelID = types.ChannelID(channelID)
 
 	var err error
 	c.stream, c.controlCtx, err = c.control.StartStream(c.channelID)

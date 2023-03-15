@@ -13,6 +13,7 @@ import (
 
 	"github.com/Glimesh/go-fdkaac/fdkaac"
 	"github.com/Glimesh/waveguide/pkg/control"
+	"github.com/Glimesh/waveguide/pkg/types"
 	h264joy "github.com/nareix/joy5/codec/h264"
 	"github.com/pion/rtp"
 	"github.com/pion/rtp/codecs"
@@ -95,8 +96,8 @@ type connHandler struct {
 
 	log logrus.FieldLogger
 
-	channelID        control.ChannelID
-	streamID         control.StreamID
+	channelID        types.ChannelID
+	streamID         types.StreamID
 	streamKey        []byte
 	started          bool
 	authenticated    bool
@@ -164,7 +165,7 @@ func (h *connHandler) OnPublish(ctx *gortmp.StreamContext, timestamp uint32, cmd
 		h.log.Error(err)
 		return err
 	}
-	h.channelID = control.ChannelID(u64)
+	h.channelID = types.ChannelID(u64)
 	h.streamKey = []byte(auth[1])
 
 	h.started = true

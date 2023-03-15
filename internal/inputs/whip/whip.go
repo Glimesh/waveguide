@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Glimesh/waveguide/pkg/control"
+	"github.com/Glimesh/waveguide/pkg/types"
 	"github.com/pion/webrtc/v3"
 	"github.com/sirupsen/logrus"
 )
@@ -23,7 +24,7 @@ type WHIPSource struct {
 	control *control.Control
 
 	peerConnectionsMutex sync.RWMutex
-	peerConnections      map[control.ChannelID]*webrtc.PeerConnection
+	peerConnections      map[types.ChannelID]*webrtc.PeerConnection
 
 	// Listen address of the FS server in the ip:port format
 	Address   string
@@ -37,7 +38,7 @@ func New(address, videoFile, audioFile string) *WHIPSource {
 		VideoFile:            videoFile,
 		AudioFile:            audioFile,
 		peerConnectionsMutex: sync.RWMutex{},
-		peerConnections:      make(map[control.ChannelID]*webrtc.PeerConnection),
+		peerConnections:      make(map[types.ChannelID]*webrtc.PeerConnection),
 	}
 }
 
@@ -81,7 +82,7 @@ func (s *WHIPSource) Listen(ctx context.Context) {
 			errWrongParams(w, r)
 			return
 		}
-		channelID := control.ChannelID(intChannelID)
+		channelID := types.ChannelID(intChannelID)
 
 		if r.Method == http.MethodDelete {
 			// The client wants to end the stream
@@ -94,7 +95,7 @@ func (s *WHIPSource) Listen(ctx context.Context) {
 			return
 		}
 
-		err = s.control.Authenticate(channelID, control.StreamKey(streamKey))
+		err = s.control.Authenticate(channelID, types.StreamKey(streamKey))
 		if err != nil {
 			errUnauthorized(w, r)
 			return
@@ -253,20 +254,20 @@ func (s *WHIPSource) Listen(ctx context.Context) {
 	})
 }
 
-func (s *WHIPSource) addPeerConnection(channelID control.ChannelID, pc *webrtc.PeerConnection) {
+func (s *WHIPSource) addPeerConnection(channelID types.ChannelID, pc *webrtc.PeerConnection) {
 	s.peerConnectionsMutex.Lock()
 	defer s.peerConnectionsMutex.Unlock()
 
 	s.peerConnections[channelID] = pc
 }
-func (s *WHIPSource) getPeerConnection(channelID control.ChannelID) (*webrtc.PeerConnection, bool) {
+func (s *WHIPSource) getPeerConnection(channelID types.ChannelID) (*webrtc.PeerConnection, bool) {
 	s.peerConnectionsMutex.RLock()
 	defer s.peerConnectionsMutex.RUnlock()
 
 	val, ok := s.peerConnections[channelID]
 	return val, ok
 }
-func (s *WHIPSource) startPeerConnectionTimeout(channelID control.ChannelID) {
+func (s *WHIPSource) startPeerConnectionTimeout(channelID types.ChannelID) {
 	go func() {
 		time.Sleep(PC_TIMEOUT)
 
@@ -277,7 +278,7 @@ func (s *WHIPSource) startPeerConnectionTimeout(channelID control.ChannelID) {
 		}
 	}()
 }
-func (s *WHIPSource) cleanupPeerConnection(channelID control.ChannelID) {
+func (s *WHIPSource) cleanupPeerConnection(channelID types.ChannelID) {
 	s.peerConnectionsMutex.Lock()
 	defer s.peerConnectionsMutex.Unlock()
 

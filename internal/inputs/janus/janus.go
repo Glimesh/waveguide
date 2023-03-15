@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Glimesh/waveguide/pkg/control"
+	"github.com/Glimesh/waveguide/pkg/types"
 	"github.com/pion/webrtc/v3"
 	"github.com/sirupsen/logrus"
 )
@@ -19,7 +20,7 @@ type JanusSource struct {
 	log     logrus.FieldLogger
 	control *control.Control
 
-	channelID control.ChannelID
+	channelID types.ChannelID
 
 	// Address to connect to for Janus
 	Address   string
@@ -63,7 +64,7 @@ type janusFtlOfferResponse struct {
 func (s *JanusSource) Listen(ctx context.Context) {
 	s.log.Infof("Connecting to janus=%s for channel_id=%d", s.Address, s.ChannelID)
 
-	s.channelID = control.ChannelID(s.ChannelID)
+	s.channelID = types.ChannelID(s.ChannelID)
 
 	values := map[string]string{"janus": "create", "transaction": randString()}
 
@@ -166,7 +167,7 @@ func (s *JanusSource) Listen(ctx context.Context) {
 }
 
 func (s *JanusSource) negotiate(sdpString string, pluginUrl string) {
-	stream, ctx, err := s.control.StartStream(control.ChannelID(s.ChannelID))
+	stream, ctx, err := s.control.StartStream(types.ChannelID(s.ChannelID))
 	if err != nil {
 		panic(err)
 	}

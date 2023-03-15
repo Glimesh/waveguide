@@ -13,6 +13,9 @@ import (
 
 	"github.com/Glimesh/waveguide/config"
 	"github.com/Glimesh/waveguide/pkg/h264"
+	"github.com/Glimesh/waveguide/pkg/orchestrator"
+	"github.com/Glimesh/waveguide/pkg/service"
+	"github.com/Glimesh/waveguide/pkg/types"
 	"github.com/sirupsen/logrus"
 )
 
@@ -24,10 +27,10 @@ type Pipe struct {
 
 type Control struct {
 	log                logrus.FieldLogger
-	service            Service
-	orchestrator       Orchestrator
-	streams            map[ChannelID]*Stream
-	metadataCollectors map[ChannelID]chan bool
+	service            service.Service
+	orchestrator       orchestrator.Orchestrator
+	streams            map[types.ChannelID]*Stream
+	metadataCollectors map[types.ChannelID]chan bool
 
 	httpMux *http.ServeMux
 
@@ -40,15 +43,30 @@ type Control struct {
 	HTTPSKey       string `mapstructure:"https_key"`
 }
 
-func New(cfg config.Config, hostname string, svc Service, or Orchestrator, logger *logrus.Logger) *Control {
+func New(
+	cfg config.Config,
+	hostname string,
+	logger *logrus.Logger,
+) (*Control, error) {
+	svc := service.New(cfg, logger)
+	if err := svc.Connect(); err != nil {
+		return nil, fmt.Errorf("service: %w", err)
+	}
+
+	or := orchestrator.New(cfg, hostname, logger)
+	if err := or.Connect(); err != nil {
+		return nil, fmt.Errorf("orchestrator: %w", err)
+	}
+
 	httpCfg := cfg.Control
 
 	return &Control{
-		streams:            make(map[ChannelID]*Stream),
-		metadataCollectors: make(map[ChannelID]chan bool),
+		service:      svc,
+		orchestrator: or,
+
+		streams:            make(map[types.ChannelID]*Stream),
+		metadataCollectors: make(map[types.ChannelID]chan bool),
 		httpMux:            http.NewServeMux(),
-		service:            svc,
-		orchestrator:       or,
 		log: logger.WithFields(logrus.Fields{
 			"control": "waveguide",
 		}),
@@ -60,7 +78,7 @@ func New(cfg config.Config, hostname string, svc Service, or Orchestrator, logge
 		HTTPSHostname:  httpCfg.HTTPSHostname,
 		HTTPSCert:      httpCfg.HTTPSCert,
 		HTTPSKey:       httpCfg.HTTPSKey,
-	}
+	}, nil
 }
 
 func (mgr *Control) Shutdown() {
@@ -72,15 +90,15 @@ func (mgr *Control) Shutdown() {
 func (mgr *Control) SetLogger(logger logrus.FieldLogger) {
 	mgr.log = logger
 }
-func (mgr *Control) SetService(service Service) {
-	mgr.service = service
+func (mgr *Control) SetService(svc service.Service) {
+	mgr.service = svc
 }
 
-func (mgr *Control) SetOrchestrator(orch Orchestrator) {
-	mgr.orchestrator = orch
+func (mgr *Control) SetOrchestrator(or orchestrator.Orchestrator) {
+	mgr.orchestrator = or
 }
 
-func (mgr *Control) GetTracks(channelID ChannelID) ([]StreamTrack, error) {
+func (mgr *Control) GetTracks(channelID types.ChannelID) ([]StreamTrack, error) {
 	stream, err := mgr.getStream(channelID)
 	if err != nil {
 		return nil, err
@@ -89,7 +107,7 @@ func (mgr *Control) GetTracks(channelID ChannelID) ([]StreamTrack, error) {
 	return stream.tracks, nil
 }
 
-func (mgr *Control) GetHmacKey(channelID ChannelID) (string, error) {
+func (mgr *Control) GetHmacKey(channelID types.ChannelID) (string, error) {
 	actualKey, err := mgr.service.GetHmacKey(channelID)
 	if err != nil {
 		return "", err
@@ -98,7 +116,7 @@ func (mgr *Control) GetHmacKey(channelID ChannelID) (string, error) {
 	return string(actualKey), nil
 }
 
-func (mgr *Control) Authenticate(channelID ChannelID, streamKey StreamKey) error {
+func (mgr *Control) Authenticate(channelID types.ChannelID, streamKey types.StreamKey) error {
 	actualKey, err := mgr.service.GetHmacKey(channelID)
 	if err != nil {
 		return err
@@ -110,7 +128,7 @@ func (mgr *Control) Authenticate(channelID ChannelID, streamKey StreamKey) error
 	return nil
 }
 
-func (mgr *Control) StartStream(channelID ChannelID) (*Stream, context.Context, error) {
+func (mgr *Control) StartStream(channelID types.ChannelID) (*Stream, context.Context, error) {
 	stream, err := mgr.newStream(channelID)
 	if err != nil {
 		return &Stream{}, stream.ctx, err
@@ -147,7 +165,7 @@ func (mgr *Control) StartStream(channelID ChannelID) (*Stream, context.Context, 
 	return stream, stream.ctx, err
 }
 
-func (mgr *Control) StopStream(channelID ChannelID) (err error) {
+func (mgr *Control) StopStream(channelID types.ChannelID) (err error) {
 	stream, err := mgr.getStream(channelID)
 	if err != nil {
 		return err
@@ -189,7 +207,7 @@ var ErrHeartbeatThumbnail = errors.New("error sending thumbnail")
 var ErrHeartbeatSendMetadata = errors.New("error sending metadata")
 var ErrHeartbeatOrchestratorHeartbeat = errors.New("error sending orchestrator heartbeat")
 
-func (mgr *Control) setupHeartbeat(channelID ChannelID) {
+func (mgr *Control) setupHeartbeat(channelID types.ChannelID) {
 	ticker := time.NewTicker(15 * time.Second)
 	go func() {
 		tickFailed := 0
@@ -248,7 +266,7 @@ func (mgr *Control) setupHeartbeat(channelID ChannelID) {
 	}()
 }
 
-func (mgr *Control) sendMetadata(channelID ChannelID) error {
+func (mgr *Control) sendMetadata(channelID types.ChannelID) error {
 	stream, err := mgr.getStream(channelID)
 	if err != nil {
 		return err
@@ -256,7 +274,7 @@ func (mgr *Control) sendMetadata(channelID ChannelID) error {
 
 	stream.lastTime = time.Now().Unix()
 
-	return mgr.service.UpdateStreamMetadata(stream.StreamID, StreamMetadata{
+	return mgr.service.UpdateStreamMetadata(stream.StreamID, types.StreamMetadata{
 		AudioCodec:        stream.audioCodec,
 		IngestServer:      mgr.Hostname,
 		IngestViewers:     0,
@@ -274,7 +292,7 @@ func (mgr *Control) sendMetadata(channelID ChannelID) error {
 	})
 }
 
-func (mgr *Control) sendThumbnail(channelID ChannelID) (err error) {
+func (mgr *Control) sendThumbnail(channelID types.ChannelID) (err error) {
 	stream, err := mgr.getStream(channelID)
 	if err != nil {
 		return err
@@ -327,7 +345,7 @@ func (mgr *Control) sendThumbnail(channelID ChannelID) (err error) {
 	return nil
 }
 
-func (mgr *Control) newStream(channelID ChannelID) (*Stream, error) {
+func (mgr *Control) newStream(channelID types.ChannelID) (*Stream, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	stream := &Stream{
 		ctx:    ctx,
@@ -358,7 +376,7 @@ func (mgr *Control) newStream(channelID ChannelID) (*Stream, error) {
 	return stream, nil
 }
 
-func (mgr *Control) removeStream(id ChannelID) error {
+func (mgr *Control) removeStream(id types.ChannelID) error {
 	if _, exists := mgr.streams[id]; !exists {
 		return errors.New("RemoveStream stream does not exist in state")
 	}
@@ -369,7 +387,7 @@ func (mgr *Control) removeStream(id ChannelID) error {
 	return nil
 }
 
-func (mgr *Control) getStream(id ChannelID) (*Stream, error) {
+func (mgr *Control) getStream(id types.ChannelID) (*Stream, error) {
 	if _, exists := mgr.streams[id]; !exists {
 		return &Stream{}, errors.New("GetStream stream does not exist in state")
 	}

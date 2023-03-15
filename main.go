@@ -12,8 +12,6 @@ import (
 	inputs "github.com/Glimesh/waveguide/internal/inputs"
 	outputs "github.com/Glimesh/waveguide/internal/outputs"
 	"github.com/Glimesh/waveguide/pkg/control"
-	"github.com/Glimesh/waveguide/pkg/orchestrator"
-	"github.com/Glimesh/waveguide/pkg/service"
 	"github.com/sirupsen/logrus"
 )
 
@@ -43,19 +41,12 @@ func main() {
 	}
 	log.SetLevel(level)
 
-	svc := service.New(cfg, log)
-	if err := svc.Connect(); err != nil {
-		log.Fatalf("failed to connect service: %v", err)
-	}
-
-	or := orchestrator.New(cfg, hostname, log)
-	if err := or.Connect(); err != nil {
-		log.Fatalf("failed to connect orchestrator: %v", err)
-	}
-
-	ctrl := control.New(cfg, hostname, svc, or, log)
-
 	ctx := context.Background()
+
+	ctrl, err := control.New(cfg, hostname, log)
+	if err != nil {
+		log.Fatalf("failed to create control: %v", err)
+	}
 
 	in, err := inputs.New(cfg, ctrl, log)
 	if err != nil {

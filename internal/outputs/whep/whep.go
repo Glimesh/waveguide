@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Glimesh/waveguide/pkg/control"
+	"github.com/Glimesh/waveguide/pkg/types"
 	"github.com/google/uuid"
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v3"
@@ -161,7 +162,7 @@ func (s *WHEPServer) Listen(ctx context.Context) {
 		})
 
 		// Importantly, the track needs to be added before the offer (duh!)
-		tracks, err := s.control.GetTracks(control.ChannelID(channelID))
+		tracks, err := s.control.GetTracks(types.ChannelID(channelID))
 		if err != nil {
 			errNotFound(w, r)
 			return

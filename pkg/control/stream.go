@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/Glimesh/waveguide/pkg/types"
 	"github.com/pion/webrtc/v3"
 	"github.com/sirupsen/logrus"
 )
@@ -13,6 +14,7 @@ type StreamTrack struct {
 	Codec string
 	Track webrtc.TrackLocal
 }
+
 type Stream struct {
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -31,9 +33,9 @@ type Stream struct {
 
 	lastThumbnail chan []byte
 
-	ChannelID ChannelID
-	StreamID  StreamID
-	StreamKey StreamKey
+	ChannelID types.ChannelID
+	StreamID  types.StreamID
+	StreamKey types.StreamKey
 
 	tracks []StreamTrack
 
@@ -81,21 +83,4 @@ func (s *Stream) ReportMetadata(metadatas ...Metadata) error {
 	}
 
 	return nil
-}
-
-type StreamMetadata struct {
-	AudioCodec        string
-	IngestServer      string
-	IngestViewers     int
-	LostPackets       int
-	NackPackets       int
-	RecvPackets       int
-	SourceBitrate     int
-	SourcePing        int
-	StreamTimeSeconds int
-	VendorName        string
-	VendorVersion     string
-	VideoCodec        string
-	VideoHeight       int
-	VideoWidth        int
 }
