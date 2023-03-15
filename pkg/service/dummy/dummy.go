@@ -4,7 +4,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 
-	"github.com/Glimesh/waveguide/pkg/control"
+	"github.com/Glimesh/waveguide/pkg/types"
 	"github.com/sirupsen/logrus"
 )
 
@@ -38,7 +38,7 @@ func (s *Service) Connect() error {
 }
 
 // GetHmacKey returns a sha256 string of the encoded channel ID
-func (s *Service) GetHmacKey(channelID control.ChannelID) ([]byte, error) {
+func (s *Service) GetHmacKey(channelID types.ChannelID) ([]byte, error) {
 	h := sha256.New()
 	h.Write([]byte(fmt.Sprint(channelID)))
 	hmacKey := fmt.Sprintf("%x", h.Sum(nil))
@@ -46,20 +46,20 @@ func (s *Service) GetHmacKey(channelID control.ChannelID) ([]byte, error) {
 	return []byte(hmacKey), nil
 }
 
-func (s *Service) StartStream(channelID control.ChannelID) (control.StreamID, error) {
-	return control.StreamID(channelID + 1), nil
+func (s *Service) StartStream(channelID types.ChannelID) (types.StreamID, error) {
+	return types.StreamID(channelID + 1), nil
 }
 
-func (s *Service) EndStream(streamID control.StreamID) error {
+func (s *Service) EndStream(streamID types.StreamID) error {
 	return nil
 }
 
-type StreamMetadataInput control.StreamMetadata
+type StreamMetadataInput types.StreamMetadata
 
-func (s *Service) UpdateStreamMetadata(streamID control.StreamID, metadata control.StreamMetadata) error {
+func (s *Service) UpdateStreamMetadata(streamID types.StreamID, metadata types.StreamMetadata) error {
 	return nil
 }
 
-func (s *Service) SendJpegPreviewImage(streamID control.StreamID, img []byte) error {
+func (s *Service) SendJpegPreviewImage(streamID types.StreamID, img []byte) error {
 	return nil
 }

@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/Glimesh/waveguide/pkg/control"
+	"github.com/Glimesh/waveguide/pkg/types"
 	"github.com/hasura/go-graphql-client"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/oauth2/clientcredentials"
@@ -56,7 +56,7 @@ func (s *Service) Connect() error {
 	return nil
 }
 
-func (s *Service) GetHmacKey(channelID control.ChannelID) ([]byte, error) {
+func (s *Service) GetHmacKey(channelID types.ChannelID) ([]byte, error) {
 	var hmacQuery struct {
 		Channel struct {
 			HmacKey graphql.String
@@ -71,7 +71,7 @@ func (s *Service) GetHmacKey(channelID control.ChannelID) ([]byte, error) {
 	return []byte(hmacQuery.Channel.HmacKey), nil
 }
 
-func (s *Service) StartStream(channelID control.ChannelID) (control.StreamID, error) {
+func (s *Service) StartStream(channelID types.ChannelID) (types.StreamID, error) {
 	var startStreamMutation struct {
 		Stream struct {
 			Id graphql.String
@@ -88,10 +88,10 @@ func (s *Service) StartStream(channelID control.ChannelID) (control.StreamID, er
 	if err != nil {
 		return 0, err
 	}
-	return control.StreamID(id), nil
+	return types.StreamID(id), nil
 }
 
-func (s *Service) EndStream(streamID control.StreamID) error {
+func (s *Service) EndStream(streamID types.StreamID) error {
 	var endStreamMutation struct {
 		Stream struct {
 			Id graphql.String
@@ -102,9 +102,9 @@ func (s *Service) EndStream(streamID control.StreamID) error {
 	})
 }
 
-type StreamMetadataInput control.StreamMetadata
+type StreamMetadataInput types.StreamMetadata
 
-func (s *Service) UpdateStreamMetadata(streamID control.StreamID, metadata control.StreamMetadata) error {
+func (s *Service) UpdateStreamMetadata(streamID types.StreamID, metadata types.StreamMetadata) error {
 	var logStreamMetadata struct {
 		Stream struct {
 			Id graphql.String
@@ -131,7 +131,7 @@ func (s *Service) UpdateStreamMetadata(streamID control.StreamID, metadata contr
 	})
 }
 
-func (s *Service) SendJpegPreviewImage(streamID control.StreamID, img []byte) error {
+func (s *Service) SendJpegPreviewImage(streamID types.StreamID, img []byte) error {
 	// Unfortunately hasura doesn't support this directly so we need to do a plain HTTP request
 	query := `mutation {
 		uploadStreamThumbnail(streamId: %d, thumbnail: "thumbdata") {
