@@ -7,7 +7,7 @@ import (
 	"errors"
 	"net"
 
-	"github.com/Glimesh/waveguide/pkg/control"
+	"github.com/Glimesh/waveguide/pkg/types"
 	"github.com/sirupsen/logrus"
 )
 
@@ -152,7 +152,7 @@ func (client *Client) Close() error {
 	return nil
 }
 
-func (client Client) StartStream(channelID control.ChannelID, streamID control.StreamID) error {
+func (client Client) StartStream(channelID types.ChannelID, streamID types.StreamID) error {
 	message := StreamPublishingMessage{
 		Context:   1,
 		ChannelID: channelID,
@@ -161,7 +161,7 @@ func (client Client) StartStream(channelID control.ChannelID, streamID control.S
 	return client.sendMessage(TypeStreamPublishing, message.Encode())
 }
 
-func (client Client) StopStream(channelID control.ChannelID, streamID control.StreamID) error {
+func (client Client) StopStream(channelID types.ChannelID, streamID types.StreamID) error {
 	message := StreamPublishingMessage{
 		Context:   0,
 		ChannelID: channelID,
