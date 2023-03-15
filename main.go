@@ -8,12 +8,11 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/Glimesh/waveguide/config"
+	config "github.com/Glimesh/waveguide/config"
 	inputs "github.com/Glimesh/waveguide/internal/inputs"
 	outputs "github.com/Glimesh/waveguide/internal/outputs"
-	"github.com/Glimesh/waveguide/pkg/control"
-	"github.com/Glimesh/waveguide/pkg/orchestrator"
-	"github.com/Glimesh/waveguide/pkg/service"
+	control "github.com/Glimesh/waveguide/pkg/control"
+
 	"github.com/sirupsen/logrus"
 )
 
@@ -43,19 +42,15 @@ func main() {
 	}
 	log.SetLevel(level)
 
-	svc := service.New(cfg, log)
-	if err := svc.Connect(); err != nil {
-		log.Fatalf("failed to connect service: %v", err)
+	ctx, stop := signal.NotifyContext(
+		context.Background(),
+		os.Interrupt, syscall.SIGTERM, syscall.SIGINT,
+	)
+
+	ctrl, err := control.New(ctx, cfg, hostname, log)
+	if err != nil {
+		log.Fatalf("failed to create control: %v", err)
 	}
-
-	or := orchestrator.New(cfg, hostname, log)
-	if err := or.Connect(); err != nil {
-		log.Fatalf("failed to connect orchestrator: %v", err)
-	}
-
-	ctrl := control.New(cfg, hostname, svc, or, log)
-
-	ctx := context.Background()
 
 	in, err := inputs.New(cfg, ctrl, log)
 	if err != nil {
@@ -69,14 +64,10 @@ func main() {
 	}
 	out.Start(ctx)
 
-	c := make(chan os.Signal)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-c
-		log.Info("Exiting Waveguide and cleaning up")
-		ctrl.Shutdown()
-		os.Exit(0)
-	}()
+	go ctrl.StartHTTPServer()
 
-	ctrl.StartHTTPServer()
+	<-ctx.Done()
+	stop()
+	log.Info("Exiting Waveguide and cleaning up")
+	ctrl.Shutdown()
 }

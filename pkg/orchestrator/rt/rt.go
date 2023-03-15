@@ -6,7 +6,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/Glimesh/waveguide/pkg/control"
+	"github.com/Glimesh/waveguide/pkg/types"
+
 	"github.com/sirupsen/logrus"
 )
 
@@ -59,7 +60,7 @@ func (client *Client) Close() error {
 	return nil
 }
 
-func (client *Client) StartStream(channelID control.ChannelID, streamID control.StreamID) error {
+func (client *Client) StartStream(channelID types.ChannelID, streamID types.StreamID) error {
 	form := url.Values{}
 	form.Add("channel_id", fmt.Sprint(channelID))
 	form.Add("endpoint", client.channelEndpoint(channelID))
@@ -82,7 +83,7 @@ func (client *Client) StartStream(channelID control.ChannelID, streamID control.
 
 	return nil
 }
-func (client *Client) StopStream(channelID control.ChannelID, streamID control.StreamID) error {
+func (client *Client) StopStream(channelID types.ChannelID, streamID types.StreamID) error {
 	form := url.Values{}
 	form.Add("channel_id", fmt.Sprint(channelID))
 
@@ -105,7 +106,7 @@ func (client *Client) StopStream(channelID control.ChannelID, streamID control.S
 	return nil
 }
 
-func (client *Client) Heartbeat(channelID control.ChannelID) error {
+func (client *Client) Heartbeat(channelID types.ChannelID) error {
 	form := url.Values{}
 	form.Add("channel_id", fmt.Sprint(channelID))
 
@@ -132,6 +133,6 @@ func (client *Client) routerEndpoint(path string) string {
 	return fmt.Sprintf("%s/%s", client.Endpoint, path)
 }
 
-func (client *Client) channelEndpoint(channelID control.ChannelID) string {
+func (client *Client) channelEndpoint(channelID types.ChannelID) string {
 	return fmt.Sprintf("%s/whep/endpoint/%d", client.WHEPEndpoint, channelID)
 }

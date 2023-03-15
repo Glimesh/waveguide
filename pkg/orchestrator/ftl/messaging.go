@@ -3,7 +3,7 @@ package ftl_orchestrator
 import (
 	"encoding/binary"
 
-	"github.com/Glimesh/waveguide/pkg/control"
+	"github.com/Glimesh/waveguide/pkg/types"
 )
 
 // Message Types
@@ -100,7 +100,7 @@ func DecodeNodeStateMessage(buf []byte) NodeStateMessage {
 // ChannelSubscriptionMessage Indicates whether streams for a given channel should be relayed to this node.
 type ChannelSubscriptionMessage struct {
 	Context   uint8
-	ChannelID control.ChannelID
+	ChannelID types.ChannelID
 	StreamKey string
 }
 
@@ -123,8 +123,8 @@ func DecodeChannelSubscriptionMessage(buf []byte) ChannelSubscriptionMessage {
 // StreamPublishingMessage Indicates that a new stream is now available (or unavailable) from this connection.
 type StreamPublishingMessage struct {
 	Context   uint8
-	ChannelID control.ChannelID
-	StreamID  control.StreamID
+	ChannelID types.ChannelID
+	StreamID  types.StreamID
 }
 
 func (im *StreamPublishingMessage) Encode() []byte {
@@ -147,16 +147,16 @@ func DecodeStreamPublishingMessage(buf []byte) StreamPublishingMessage {
 
 	return StreamPublishingMessage{
 		Context:   buf[0],
-		ChannelID: control.ChannelID(channelId),
-		StreamID:  control.StreamID(streamId),
+		ChannelID: types.ChannelID(channelId),
+		StreamID:  types.StreamID(streamId),
 	}
 }
 
 // StreamRelayingMessage Contains information used for relaying streams between nodes.
 type StreamRelayingMessage struct {
 	Context        uint8
-	ChannelID      control.ChannelID
-	StreamID       control.StreamID
+	ChannelID      types.ChannelID
+	StreamID       types.StreamID
 	TargetHostname string
 	StreamKey      []byte
 }
@@ -187,8 +187,8 @@ func DecodeStreamRelayingMessage(buf []byte) StreamRelayingMessage {
 
 	return StreamRelayingMessage{
 		Context:        buf[0],
-		ChannelID:      control.ChannelID(channelId),
-		StreamID:       control.StreamID(streamId),
+		ChannelID:      types.ChannelID(channelId),
+		StreamID:       types.StreamID(streamId),
 		TargetHostname: string(buf[11:hostnameEnd]),
 		StreamKey:      buf[hostnameEnd:],
 	}

@@ -9,10 +9,13 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/pkg/errors"
-
 	"github.com/Glimesh/waveguide/config"
 	"github.com/Glimesh/waveguide/pkg/h264"
+	"github.com/Glimesh/waveguide/pkg/orchestrator"
+	"github.com/Glimesh/waveguide/pkg/service"
+	"github.com/Glimesh/waveguide/pkg/types"
+
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -23,12 +26,13 @@ type Pipe struct {
 }
 
 type Control struct {
-	log                logrus.FieldLogger
-	service            Service
-	orchestrator       Orchestrator
-	streams            map[ChannelID]*Stream
-	metadataCollectors map[ChannelID]chan bool
+	ctx                context.Context
+	service            service.Service
+	orchestrator       orchestrator.Orchestrator
+	streams            map[types.ChannelID]*Stream
+	metadataCollectors map[types.ChannelID]chan bool
 
+	log     logrus.FieldLogger
 	httpMux *http.ServeMux
 
 	Hostname       string
@@ -40,48 +44,61 @@ type Control struct {
 	HTTPSKey       string `mapstructure:"https_key"`
 }
 
-func New(cfg config.Config, hostname string, svc Service, or Orchestrator, logger *logrus.Logger) *Control {
+func New(
+	ctx context.Context,
+	cfg config.Config,
+	hostname string,
+	logger *logrus.Logger,
+) (*Control, error) {
+	svc := service.New(cfg, logger)
+	if err := svc.Connect(); err != nil {
+		return nil, fmt.Errorf("service: %w", err)
+	}
+
+	or := orchestrator.New(cfg, hostname, logger)
+	if err := or.Connect(); err != nil {
+		return nil, fmt.Errorf("orchestrator: %w", err)
+	}
+
 	httpCfg := cfg.Control
 
 	return &Control{
-		streams:            make(map[ChannelID]*Stream),
-		metadataCollectors: make(map[ChannelID]chan bool),
+		ctx:          ctx,
+		service:      svc,
+		orchestrator: or,
+
+		streams:            make(map[types.ChannelID]*Stream),
+		metadataCollectors: make(map[types.ChannelID]chan bool),
 		httpMux:            http.NewServeMux(),
-		service:            svc,
-		orchestrator:       or,
 		log: logger.WithFields(logrus.Fields{
 			"control": "waveguide",
 		}),
 
-		Hostname: hostname,
-
+		Hostname:       hostname,
 		HTTPServerType: httpCfg.HTTPServerType,
 		HTTPAddress:    httpCfg.Address,
 		HTTPSHostname:  httpCfg.HTTPSHostname,
 		HTTPSCert:      httpCfg.HTTPSCert,
 		HTTPSKey:       httpCfg.HTTPSKey,
+	}, nil
+}
+
+func (ctrl *Control) Context() context.Context {
+	return ctrl.ctx
+}
+
+func (ctrl *Control) ContextErr() error {
+	return ctrl.Context().Err()
+}
+
+func (ctrl *Control) Shutdown() {
+	for c := range ctrl.streams {
+		ctrl.StopStream(c)
 	}
 }
 
-func (mgr *Control) Shutdown() {
-	for c := range mgr.streams {
-		mgr.StopStream(c)
-	}
-}
-
-func (mgr *Control) SetLogger(logger logrus.FieldLogger) {
-	mgr.log = logger
-}
-func (mgr *Control) SetService(service Service) {
-	mgr.service = service
-}
-
-func (mgr *Control) SetOrchestrator(orch Orchestrator) {
-	mgr.orchestrator = orch
-}
-
-func (mgr *Control) GetTracks(channelID ChannelID) ([]StreamTrack, error) {
-	stream, err := mgr.getStream(channelID)
+func (ctrl *Control) GetTracks(channelID types.ChannelID) ([]StreamTrack, error) {
+	stream, err := ctrl.getStream(channelID)
 	if err != nil {
 		return nil, err
 	}
@@ -89,8 +106,8 @@ func (mgr *Control) GetTracks(channelID ChannelID) ([]StreamTrack, error) {
 	return stream.tracks, nil
 }
 
-func (mgr *Control) GetHmacKey(channelID ChannelID) (string, error) {
-	actualKey, err := mgr.service.GetHmacKey(channelID)
+func (ctrl *Control) GetHmacKey(channelID types.ChannelID) (string, error) {
+	actualKey, err := ctrl.service.GetHmacKey(channelID)
 	if err != nil {
 		return "", err
 	}
@@ -98,8 +115,8 @@ func (mgr *Control) GetHmacKey(channelID ChannelID) (string, error) {
 	return string(actualKey), nil
 }
 
-func (mgr *Control) Authenticate(channelID ChannelID, streamKey StreamKey) error {
-	actualKey, err := mgr.service.GetHmacKey(channelID)
+func (ctrl *Control) Authenticate(channelID types.ChannelID, streamKey types.StreamKey) error {
+	actualKey, err := ctrl.service.GetHmacKey(channelID)
 	if err != nil {
 		return err
 	}
@@ -110,64 +127,58 @@ func (mgr *Control) Authenticate(channelID ChannelID, streamKey StreamKey) error
 	return nil
 }
 
-func (mgr *Control) StartStream(channelID ChannelID) (*Stream, context.Context, error) {
-	stream, err := mgr.newStream(channelID)
+func (ctrl *Control) StartStream(channelID types.ChannelID) (*Stream, error) {
+	stream, err := ctrl.newStream(channelID)
 	if err != nil {
-		return &Stream{}, stream.ctx, err
+		return nil, err
 	}
 
-	mgr.log.Infof("Starting stream for %s", channelID)
+	ctrl.log.Infof("Starting stream for %s", channelID)
 
-	streamID, err := mgr.service.StartStream(channelID)
+	streamID, err := ctrl.service.StartStream(channelID)
 	if err != nil {
-		mgr.removeStream(channelID)
-		return &Stream{}, stream.ctx, err
+		ctrl.removeStream(channelID)
+		return nil, err
 	}
-
 	stream.StreamID = streamID
 
-	err = mgr.orchestrator.StartStream(stream.ChannelID, stream.StreamID)
+	err = ctrl.orchestrator.StartStream(stream.ChannelID, stream.StreamID)
 	if err != nil {
-		mgr.StopStream(channelID)
-		return &Stream{}, stream.ctx, err
+		ctrl.StopStream(channelID)
+		return nil, err
 	}
 
-	go mgr.setupHeartbeat(channelID)
+	go ctrl.setupHeartbeat(channelID)
 
 	// Really gross, I'm sorry.
-	whepEndpoint := fmt.Sprintf("%s/whep/endpoint", mgr.HttpServerUrl())
+	whepEndpoint := fmt.Sprintf("%s/whep/endpoint", ctrl.HTTPServerURL())
 	go func() {
-		err := stream.thumbnailer(whepEndpoint)
+		err := stream.thumbnailer(ctrl.Context(), whepEndpoint)
 		if err != nil {
 			stream.log.Error(err)
-			mgr.StopStream(channelID)
+			ctrl.StopStream(channelID)
 		}
 	}()
 
-	return stream, stream.ctx, err
+	return stream, err
 }
 
-func (mgr *Control) StopStream(channelID ChannelID) (err error) {
-	stream, err := mgr.getStream(channelID)
+func (ctrl *Control) StopStream(channelID types.ChannelID) error {
+	stream, err := ctrl.getStream(channelID)
 	if err != nil {
 		return err
 	}
+
 	stream.log.Infof("Stopping stream")
 
-	// Cancel the context
-	// stream.cancel()
-
-	stream.stopHeartbeat <- true
-	stream.stopPeersnap <- true
-	mgr.metadataCollectors[channelID] <- true
+	stream.stopHeartbeat <- struct{}{} // not being used anywhere, is it really needed?
+	stream.stopThumbnailer <- struct{}{}
+	ctrl.metadataCollectors[channelID] <- true
 
 	// Make sure we send stop commands to everyone, and don't return until they've all been sent
-	serviceErr := mgr.service.EndStream(stream.StreamID)
-	orchestratorErr := mgr.orchestrator.StopStream(stream.ChannelID, stream.StreamID)
-	controlErr := mgr.removeStream(channelID)
-
-	// Cancel stream context to tell the video ingestor to stop work
-	stream.cancel()
+	serviceErr := ctrl.service.EndStream(stream.StreamID)
+	orchestratorErr := ctrl.orchestrator.StopStream(stream.ChannelID, stream.StreamID)
+	controlErr := ctrl.removeStream(channelID)
 
 	if serviceErr != nil {
 		stream.log.Error(serviceErr)
@@ -185,16 +196,18 @@ func (mgr *Control) StopStream(channelID ChannelID) (err error) {
 	return nil
 }
 
-var ErrHeartbeatThumbnail = errors.New("error sending thumbnail")
-var ErrHeartbeatSendMetadata = errors.New("error sending metadata")
-var ErrHeartbeatOrchestratorHeartbeat = errors.New("error sending orchestrator heartbeat")
+var (
+	ErrHeartbeatThumbnail             = errors.New("error sending thumbnail")
+	ErrHeartbeatSendMetadata          = errors.New("error sending metadata")
+	ErrHeartbeatOrchestratorHeartbeat = errors.New("error sending orchestrator heartbeat")
+)
 
-func (mgr *Control) setupHeartbeat(channelID ChannelID) {
+func (ctrl *Control) setupHeartbeat(channelID types.ChannelID) {
 	ticker := time.NewTicker(15 * time.Second)
 	go func() {
 		tickFailed := 0
 
-		stream, err := mgr.getStream(channelID)
+		stream, err := ctrl.getStream(channelID)
 		if err != nil {
 			return
 		}
@@ -206,41 +219,39 @@ func (mgr *Control) setupHeartbeat(channelID ChannelID) {
 				var err error
 				hasErrors := false
 
-				err = mgr.sendThumbnail(channelID)
+				err = ctrl.sendThumbnail(channelID)
 				if err != nil {
 					stream.log.Error(errors.Wrap(err, ErrHeartbeatThumbnail.Error()))
 					hasErrors = true
 				}
 
-				err = mgr.sendMetadata(channelID)
+				err = ctrl.sendMetadata(channelID)
 				if err != nil {
 					stream.log.Error(errors.Wrap(err, ErrHeartbeatSendMetadata.Error()))
 					hasErrors = true
 				}
 
-				err = mgr.orchestrator.Heartbeat(channelID)
+				err = ctrl.orchestrator.Heartbeat(channelID)
 				if err != nil {
 					stream.log.Error(errors.Wrap(err, ErrHeartbeatOrchestratorHeartbeat.Error()))
 					hasErrors = true
 				}
 
 				if hasErrors {
-					tickFailed += 1
-				} else {
-					if tickFailed > 0 {
-						tickFailed -= 1
-					}
+					tickFailed++
+				} else if tickFailed > 0 {
+					tickFailed--
 				}
 
 				// Look for 3 consecutive failures
 				if tickFailed >= 5 {
 					stream.log.Warn("Stopping stream due to excessive heartbeat errors")
-					mgr.StopStream(channelID)
+					ctrl.StopStream(channelID)
 					ticker.Stop()
 					return
 				}
 
-			case <-mgr.metadataCollectors[channelID]:
+			case <-ctrl.metadataCollectors[channelID]:
 				ticker.Stop()
 				return
 			}
@@ -248,17 +259,17 @@ func (mgr *Control) setupHeartbeat(channelID ChannelID) {
 	}()
 }
 
-func (mgr *Control) sendMetadata(channelID ChannelID) error {
-	stream, err := mgr.getStream(channelID)
+func (ctrl *Control) sendMetadata(channelID types.ChannelID) error {
+	stream, err := ctrl.getStream(channelID)
 	if err != nil {
 		return err
 	}
 
 	stream.lastTime = time.Now().Unix()
 
-	return mgr.service.UpdateStreamMetadata(stream.StreamID, StreamMetadata{
+	return ctrl.service.UpdateStreamMetadata(stream.StreamID, types.StreamMetadata{
 		AudioCodec:        stream.audioCodec,
-		IngestServer:      mgr.Hostname,
+		IngestServer:      ctrl.Hostname,
 		IngestViewers:     0,
 		LostPackets:       0, // Don't exist
 		NackPackets:       0, // Don't exist
@@ -274,8 +285,8 @@ func (mgr *Control) sendMetadata(channelID ChannelID) error {
 	})
 }
 
-func (mgr *Control) sendThumbnail(channelID ChannelID) (err error) {
-	stream, err := mgr.getStream(channelID)
+func (ctrl *Control) sendThumbnail(channelID types.ChannelID) (err error) {
+	stream, err := ctrl.getStream(channelID)
 	if err != nil {
 		return err
 	}
@@ -301,7 +312,7 @@ func (mgr *Control) sendThumbnail(channelID ChannelID) (err error) {
 		return err
 	}
 	if img == nil {
-		mgr.log.WithField("channel_id", channelID).Debug("img is nil")
+		ctrl.log.WithField("channel_id", channelID).Debug("img is nil")
 		return nil
 	}
 
@@ -313,12 +324,12 @@ func (mgr *Control) sendThumbnail(channelID ChannelID) (err error) {
 		return err
 	}
 
-	err = mgr.service.SendJpegPreviewImage(stream.StreamID, buff.Bytes())
+	err = ctrl.service.SendJpegPreviewImage(stream.StreamID, buff.Bytes())
 	if err != nil {
 		return err
 	}
 
-	mgr.log.WithField("channel_id", channelID).Debug("Got screenshot!")
+	ctrl.log.WithField("channel_id", channelID).Debug("Got screenshot!")
 
 	// Also update our metadata
 	stream.videoWidth = img.Bounds().Dx()
@@ -327,19 +338,15 @@ func (mgr *Control) sendThumbnail(channelID ChannelID) (err error) {
 	return nil
 }
 
-func (mgr *Control) newStream(channelID ChannelID) (*Stream, error) {
-	ctx, cancel := context.WithCancel(context.Background())
+func (ctrl *Control) newStream(channelID types.ChannelID) (*Stream, error) {
 	stream := &Stream{
-		ctx:    ctx,
-		cancel: cancel,
+		log: ctrl.log.WithField("channel_id", channelID),
 
-		log: mgr.log.WithField("channel_id", channelID),
-
-		authenticated: true,
-		mediaStarted:  false,
-		ChannelID:     channelID,
-		stopHeartbeat: make(chan bool, 1),
-		stopPeersnap:  make(chan bool, 1),
+		authenticated:   true,
+		mediaStarted:    false,
+		ChannelID:       channelID,
+		stopHeartbeat:   make(chan struct{}, 1),
+		stopThumbnailer: make(chan struct{}, 1),
 		// 10 keyframes in 5 seconds is probably a bit extreme
 		lastThumbnail:       make(chan []byte, 10),
 		startTime:           time.Now().Unix(),
@@ -349,29 +356,29 @@ func (mgr *Control) newStream(channelID ChannelID) (*Stream, error) {
 		clientVendorVersion: "",
 	}
 
-	if _, exists := mgr.streams[channelID]; exists {
+	if _, exists := ctrl.streams[channelID]; exists {
 		return stream, errors.New("stream already exists in stream manager state")
 	}
-	mgr.streams[channelID] = stream
-	mgr.metadataCollectors[channelID] = make(chan bool, 1)
+	ctrl.streams[channelID] = stream
+	ctrl.metadataCollectors[channelID] = make(chan bool, 1)
 
 	return stream, nil
 }
 
-func (mgr *Control) removeStream(id ChannelID) error {
-	if _, exists := mgr.streams[id]; !exists {
+func (ctrl *Control) removeStream(id types.ChannelID) error {
+	if _, exists := ctrl.streams[id]; !exists {
 		return errors.New("RemoveStream stream does not exist in state")
 	}
 
-	delete(mgr.streams, id)
-	delete(mgr.metadataCollectors, id)
+	delete(ctrl.streams, id)
+	delete(ctrl.metadataCollectors, id)
 
 	return nil
 }
 
-func (mgr *Control) getStream(id ChannelID) (*Stream, error) {
-	if _, exists := mgr.streams[id]; !exists {
+func (ctrl *Control) getStream(id types.ChannelID) (*Stream, error) {
+	if _, exists := ctrl.streams[id]; !exists {
 		return &Stream{}, errors.New("GetStream stream does not exist in state")
 	}
-	return mgr.streams[id], nil
+	return ctrl.streams[id], nil
 }

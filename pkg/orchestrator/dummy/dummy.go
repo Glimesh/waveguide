@@ -1,7 +1,8 @@
 package dummy
 
 import (
-	"github.com/Glimesh/waveguide/pkg/control"
+	"github.com/Glimesh/waveguide/pkg/types"
+
 	"github.com/sirupsen/logrus"
 )
 
@@ -66,12 +67,12 @@ func (client *Client) Close() error {
 	return nil
 }
 
-func (client *Client) StartStream(channelID control.ChannelID, streamID control.StreamID) error {
+func (client *Client) StartStream(channelID types.ChannelID, streamID types.StreamID) error {
 	return nil
 }
-func (client *Client) StopStream(channelID control.ChannelID, streamID control.StreamID) error {
+func (client *Client) StopStream(channelID types.ChannelID, streamID types.StreamID) error {
 	return nil
 }
-func (client *Client) Heartbeat(channelID control.ChannelID) error {
+func (client *Client) Heartbeat(channelID types.ChannelID) error {
 	return nil
 }

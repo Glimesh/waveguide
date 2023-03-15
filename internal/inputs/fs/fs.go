@@ -7,13 +7,14 @@ import (
 	"time"
 
 	"github.com/Glimesh/waveguide/pkg/control"
+
 	"github.com/pion/webrtc/v3"
 	"github.com/pion/webrtc/v3/pkg/media"
 	"github.com/pion/webrtc/v3/pkg/media/h264reader"
 	"github.com/sirupsen/logrus"
 )
 
-type FSSource struct {
+type Source struct {
 	log     logrus.FieldLogger
 	control *control.Control
 
@@ -23,23 +24,23 @@ type FSSource struct {
 	AudioFile string `mapstructure:"audio_file"`
 }
 
-func New(address, videoFile, audioFile string) *FSSource {
-	return &FSSource{
+func New(address, videoFile, audioFile string) *Source {
+	return &Source{
 		Address:   address,
 		VideoFile: videoFile,
 		AudioFile: audioFile,
 	}
 }
 
-func (s *FSSource) SetControl(ctrl *control.Control) {
+func (s *Source) SetControl(ctrl *control.Control) {
 	s.control = ctrl
 }
 
-func (s *FSSource) SetLogger(log logrus.FieldLogger) {
+func (s *Source) SetLogger(log logrus.FieldLogger) {
 	s.log = log
 }
 
-func (s *FSSource) Listen(ctx context.Context) {
+func (s *Source) Listen(ctx context.Context) {
 	s.log.Infof("Reading from FS for video=%s and audio=%s", s.VideoFile, s.AudioFile)
 
 	// Assert that we have an audio or video file
@@ -58,7 +59,7 @@ func (s *FSSource) Listen(ctx context.Context) {
 		panic(videoTrackErr)
 	}
 
-	stream, ctx, err := s.control.StartStream(1234)
+	stream, err := s.control.StartStream(1234)
 	if err != nil {
 		panic(err)
 	}

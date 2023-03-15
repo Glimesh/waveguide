@@ -4,35 +4,37 @@ import (
 	"context"
 	"net"
 
-	"github.com/Glimesh/waveguide/pkg/control"
+	control "github.com/Glimesh/waveguide/pkg/control"
 	ftlproto "github.com/Glimesh/waveguide/pkg/protocols/ftl"
+	types "github.com/Glimesh/waveguide/pkg/types"
+
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v3"
 	"github.com/sirupsen/logrus"
 )
 
-type FTLSource struct {
+type Source struct {
 	log     logrus.FieldLogger
 	control *control.Control
 
 	Address string
 }
 
-func New(address string) *FTLSource {
-	return &FTLSource{
+func New(address string) *Source {
+	return &Source{
 		Address: address,
 	}
 }
 
-func (s *FTLSource) SetControl(ctrl *control.Control) {
+func (s *Source) SetControl(ctrl *control.Control) {
 	s.control = ctrl
 }
 
-func (s *FTLSource) SetLogger(log logrus.FieldLogger) {
+func (s *Source) SetLogger(log logrus.FieldLogger) {
 	s.log = log
 }
 
-func (s *FTLSource) Listen(ctx context.Context) {
+func (s *Source) Listen(ctx context.Context) {
 	tcpAddr, err := net.ResolveTCPAddr("tcp", s.Address)
 	if err != nil {
 		s.log.Errorf("Failed: %+v", err)
@@ -65,11 +67,10 @@ func (s *FTLSource) Listen(ctx context.Context) {
 }
 
 type connHandler struct {
-	control    *control.Control
-	log        logrus.FieldLogger
-	controlCtx context.Context
+	control *control.Control
+	log     logrus.FieldLogger
 
-	channelID control.ChannelID
+	channelID types.ChannelID
 
 	stream     *control.Stream
 	videoTrack *webrtc.TrackLocalStaticRTP
@@ -79,13 +80,13 @@ type connHandler struct {
 }
 
 func (c *connHandler) OnConnect(channelID ftlproto.ChannelID) error {
-	c.channelID = control.ChannelID(channelID)
+	c.channelID = types.ChannelID(channelID)
 
-	var err error
-	c.stream, c.controlCtx, err = c.control.StartStream(c.channelID)
+	stream, err := c.control.StartStream(c.channelID)
 	if err != nil {
 		return err
 	}
+	c.stream = stream
 
 	// Create a video track
 	c.videoTrack, err = webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: "video/h264"}, "video", "pion")
@@ -124,10 +125,9 @@ func (c *connHandler) OnPlay(metadata ftlproto.FtlConnectionMetadata) error {
 }
 
 func (c *connHandler) OnAudio(packet *rtp.Packet) error {
-	if c.controlCtx.Err() != nil {
-		return c.controlCtx.Err()
+	if err := c.control.ContextErr(); err != nil {
+		return err
 	}
-
 	err := c.audioTrack.WriteRTP(packet)
 
 	c.stream.ReportMetadata(control.AudioPacketsMetadata(len(packet.Payload)))
@@ -136,8 +136,8 @@ func (c *connHandler) OnAudio(packet *rtp.Packet) error {
 }
 
 func (c *connHandler) OnVideo(packet *rtp.Packet) error {
-	if c.controlCtx.Err() != nil {
-		return c.controlCtx.Err()
+	if err := c.control.ContextErr(); err != nil {
+		return err
 	}
 
 	// Write the RTP packet immediately, log after
@@ -149,7 +149,7 @@ func (c *connHandler) OnVideo(packet *rtp.Packet) error {
 }
 
 func (c *connHandler) OnClose() {
-	if c.controlCtx.Err() == nil {
+	if c.control.ContextErr() == nil {
 		// This is the FTL => Control cancellation
 		// Only since if we're not the canceller.
 		c.control.StopStream(c.channelID)
