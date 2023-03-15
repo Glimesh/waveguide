@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/Glimesh/waveguide/pkg/types"
+
 	"github.com/sirupsen/logrus"
 )
 

@@ -15,6 +15,7 @@ import (
 
 	"github.com/Glimesh/waveguide/pkg/control"
 	"github.com/Glimesh/waveguide/pkg/types"
+
 	"github.com/google/uuid"
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v3"
@@ -34,7 +35,7 @@ var streamTemplateContent string
 // 	HttpsKey      string `mapstructure:"https_key"`
 // }
 
-type WHEPServer struct {
+type Server struct {
 	log     logrus.FieldLogger
 	control *control.Control
 
@@ -51,8 +52,8 @@ type WHEPServer struct {
 	HTTPSKey      string `mapstructure:"https_key"`
 }
 
-func New(address, server string, opts ...Options) *WHEPServer {
-	srv := WHEPServer{
+func New(address, server string, opts ...Options) *Server {
+	srv := Server{
 		Address: address,
 		Server:  server,
 
@@ -68,15 +69,15 @@ func New(address, server string, opts ...Options) *WHEPServer {
 	return &srv
 }
 
-func (s *WHEPServer) SetControl(ctrl *control.Control) {
+func (s *Server) SetControl(ctrl *control.Control) {
 	s.control = ctrl
 }
 
-func (s *WHEPServer) SetLogger(log logrus.FieldLogger) {
+func (s *Server) SetLogger(log logrus.FieldLogger) {
 	s.log = log
 }
 
-func (s *WHEPServer) Listen(ctx context.Context) {
+func (s *Server) Listen(ctx context.Context) {
 	s.log.Infof("Registering WHEP http endpoints")
 
 	// Todo: Find better way of fetching this path
@@ -201,7 +202,6 @@ func (s *WHEPServer) Listen(ctx context.Context) {
 								s.log.Error(err)
 							}
 						default:
-
 							if stringer, canString := r.(fmt.Stringer); canString {
 								debugChannel.SendText(fmt.Sprintf("Unknown Received RTCP Packet: %v", stringer.String()))
 								// peerLog.Debugf("Unknown Received RTCP Packet: %v", stringer.String())
@@ -302,20 +302,20 @@ func (s *WHEPServer) Listen(ctx context.Context) {
 	})
 }
 
-func (s *WHEPServer) addPeerConnection(uuid string, pc *webrtc.PeerConnection) {
+func (s *Server) addPeerConnection(uuid string, pc *webrtc.PeerConnection) {
 	s.peerConnectionsMutex.Lock()
 	defer s.peerConnectionsMutex.Unlock()
 
 	s.peerConnections[uuid] = pc
 }
-func (s *WHEPServer) getPeerConnection(uuid string) (*webrtc.PeerConnection, bool) {
+func (s *Server) getPeerConnection(uuid string) (*webrtc.PeerConnection, bool) {
 	s.peerConnectionsMutex.RLock()
 	defer s.peerConnectionsMutex.RUnlock()
 
 	val, ok := s.peerConnections[uuid]
 	return val, ok
 }
-func (s *WHEPServer) startPeerConnectionTimeout(uuid string) {
+func (s *Server) startPeerConnectionTimeout(uuid string) {
 	go func() {
 		time.Sleep(PC_TIMEOUT)
 
@@ -326,7 +326,7 @@ func (s *WHEPServer) startPeerConnectionTimeout(uuid string) {
 		}
 	}()
 }
-func (s *WHEPServer) cleanupPeerConnection(uuid string) {
+func (s *Server) cleanupPeerConnection(uuid string) {
 	s.peerConnectionsMutex.Lock()
 	defer s.peerConnectionsMutex.Unlock()
 
@@ -337,11 +337,11 @@ func (s *WHEPServer) cleanupPeerConnection(uuid string) {
 	delete(s.peerConnections, uuid)
 }
 
-func (s *WHEPServer) endpointUrl(channelID string) string {
-	return fmt.Sprintf("%s/whep/endpoint/%s", s.control.HttpServerUrl(), channelID)
+func (s *Server) endpointUrl(channelID string) string {
+	return fmt.Sprintf("%s/whep/endpoint/%s", s.control.HTTPServerURL(), channelID)
 }
-func (s *WHEPServer) resourceUrl(uuid string) string {
-	return fmt.Sprintf("%s/whep/resource/%s", s.control.HttpServerUrl(), uuid)
+func (s *Server) resourceUrl(uuid string) string {
+	return fmt.Sprintf("%s/whep/resource/%s", s.control.HTTPServerURL(), uuid)
 }
 
 func logRequest(log logrus.FieldLogger, handler http.Handler) http.Handler {

@@ -2,6 +2,7 @@ package dummy
 
 import (
 	"github.com/Glimesh/waveguide/pkg/types"
+
 	"github.com/sirupsen/logrus"
 )
 

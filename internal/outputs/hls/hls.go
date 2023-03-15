@@ -4,10 +4,11 @@ import (
 	"context"
 
 	"github.com/Glimesh/waveguide/pkg/control"
+
 	"github.com/sirupsen/logrus"
 )
 
-type HLSServer struct {
+type Server struct {
 	log     logrus.FieldLogger
 	control *control.Control
 
@@ -15,21 +16,21 @@ type HLSServer struct {
 	Address string
 }
 
-func New(address string) *HLSServer {
-	return &HLSServer{
+func New(address string) *Server {
+	return &Server{
 		Address: address,
 	}
 }
 
-func (s *HLSServer) SetControl(ctrl *control.Control) {
+func (s *Server) SetControl(ctrl *control.Control) {
 	s.control = ctrl
 }
 
-func (s *HLSServer) SetLogger(log logrus.FieldLogger) {
+func (s *Server) SetLogger(log logrus.FieldLogger) {
 	s.log = log
 }
 
-func (s *HLSServer) Listen(ctx context.Context) {
+func (s *Server) Listen(ctx context.Context) {
 	s.log.Infof("Starting HLS Server on %s", s.Address)
 
 	// Basically what the HLS server needs to do is:

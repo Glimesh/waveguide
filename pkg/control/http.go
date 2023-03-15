@@ -44,7 +44,7 @@ func (ctrl *Control) RegisterHandleFunc(pattern string, handler func(http.Respon
 	ctrl.httpMux.HandleFunc(pattern, handler)
 }
 
-func (ctrl *Control) HttpServerUrl() string {
+func (ctrl *Control) HTTPServerURL() string {
 	var protocol string
 	var host string
 	if ctrl.HTTPServerType == "acme" || ctrl.HTTPServerType == "https" {
@@ -65,6 +65,7 @@ func httpServer(address string, log logrus.FieldLogger, mux *http.ServeMux) erro
 	}
 	return srv.ListenAndServe()
 }
+
 func httpsServer(address, cert, key string, log logrus.FieldLogger, mux *http.ServeMux) error {
 	cfg := &tls.Config{
 		MinVersion:               tls.VersionTLS12,

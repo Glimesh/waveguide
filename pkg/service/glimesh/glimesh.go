@@ -9,6 +9,7 @@ import (
 	"strconv"
 
 	"github.com/Glimesh/waveguide/pkg/types"
+
 	"github.com/hasura/go-graphql-client"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/oauth2/clientcredentials"

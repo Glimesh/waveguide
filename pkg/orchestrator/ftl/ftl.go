@@ -8,6 +8,7 @@ import (
 	"net"
 
 	"github.com/Glimesh/waveguide/pkg/types"
+
 	"github.com/sirupsen/logrus"
 )
 
