@@ -2,6 +2,7 @@ package control
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,12 +12,12 @@ import (
 
 // Note: This type of functionality will be common in Waveguide
 // However we should not do it like this :D
-func (s *Stream) thumbnailer(whepEndpoint string) error {
+func (s *Stream) thumbnailer(ctx context.Context, whepEndpoint string) error {
 	log := s.log.WithField("app", "peersnap")
 
 	log.Info("Started Thumbnailer")
 	// Create a new PeerConnection
-	peerConnection, err := webrtc.NewPeerConnection(webrtc.Configuration{})
+	peerConnection, err := webrtc.NewPeerConnection(webrtc.Configuration{}) //nolint exhaustive struct
 	if err != nil {
 		return err
 	}
@@ -28,7 +29,7 @@ func (s *Stream) thumbnailer(whepEndpoint string) error {
 
 		if codec.MimeType == "video/H264" {
 			for {
-				if s.ctx.Err() != nil {
+				if ctx.Err() != nil {
 					return
 				}
 
@@ -49,7 +50,6 @@ func (s *Stream) thumbnailer(whepEndpoint string) error {
 				}
 			}
 		}
-
 	})
 
 	url := fmt.Sprintf("%s/%d", whepEndpoint, s.ChannelID)
@@ -68,7 +68,7 @@ func (s *Stream) thumbnailer(whepEndpoint string) error {
 		return err
 	}
 
-	if err = peerConnection.SetRemoteDescription(webrtc.SessionDescription{
+	if err := peerConnection.SetRemoteDescription(webrtc.SessionDescription{
 		Type: webrtc.SDPTypeOffer,
 		SDP:  string(body),
 	}); err != nil {
@@ -83,7 +83,7 @@ func (s *Stream) thumbnailer(whepEndpoint string) error {
 	// Create channel that is blocked until ICE Gathering is complete
 	gatherComplete := webrtc.GatheringCompletePromise(peerConnection)
 
-	if err = peerConnection.SetLocalDescription(answer); err != nil {
+	if err := peerConnection.SetLocalDescription(answer); err != nil {
 		return err
 	}
 
@@ -103,8 +103,13 @@ func (s *Stream) thumbnailer(whepEndpoint string) error {
 		return err
 	}
 
-	<-s.ctx.Done()
-	log.Info("Ending Thumbnailer")
+	select {
+	case <-ctx.Done():
+		log.Debug("received ctx done signal")
+	case <-s.stopThumbnailer:
+		log.Debug("received kill peersnap signal")
+	}
+	log.Info("ending thumbnailer")
 
 	return nil
 }

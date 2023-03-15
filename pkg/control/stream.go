@@ -1,10 +1,10 @@
 package control
 
 import (
-	"context"
 	"errors"
 
 	"github.com/Glimesh/waveguide/pkg/types"
+
 	"github.com/pion/webrtc/v3"
 	"github.com/sirupsen/logrus"
 )
@@ -16,9 +16,6 @@ type StreamTrack struct {
 }
 
 type Stream struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-
 	log logrus.FieldLogger
 
 	// authenticated is set after the stream has successfully authed with a remote service
@@ -28,8 +25,10 @@ type Stream struct {
 	hasSomeAudio bool
 	hasSomeVideo bool
 
-	stopHeartbeat chan bool
-	stopPeersnap  chan bool
+	stopHeartbeat chan struct{}
+
+	// channel used to signal thumbnailer to stop
+	stopThumbnailer chan struct{}
 
 	lastThumbnail chan []byte
 

@@ -12,11 +12,12 @@ import (
 
 	"github.com/Glimesh/waveguide/pkg/control"
 	"github.com/Glimesh/waveguide/pkg/types"
+
 	"github.com/pion/webrtc/v3"
 	"github.com/sirupsen/logrus"
 )
 
-type JanusSource struct {
+type Source struct {
 	log     logrus.FieldLogger
 	control *control.Control
 
@@ -28,17 +29,17 @@ type JanusSource struct {
 }
 
 func New(address string, channelID int) control.Input {
-	return &JanusSource{
+	return &Source{
 		Address:   address,
 		ChannelID: channelID,
 	}
 }
 
-func (s *JanusSource) SetControl(ctrl *control.Control) {
+func (s *Source) SetControl(ctrl *control.Control) {
 	s.control = ctrl
 }
 
-func (s *JanusSource) SetLogger(log logrus.FieldLogger) {
+func (s *Source) SetLogger(log logrus.FieldLogger) {
 	s.log = log
 }
 
@@ -61,7 +62,7 @@ type janusFtlOfferResponse struct {
 	Jsep        JSEP   `json:"jsep"`
 }
 
-func (s *JanusSource) Listen(ctx context.Context) {
+func (s *Source) Listen(ctx context.Context) {
 	s.log.Infof("Connecting to janus=%s for channel_id=%d", s.Address, s.ChannelID)
 
 	s.channelID = types.ChannelID(s.ChannelID)
@@ -166,8 +167,8 @@ func (s *JanusSource) Listen(ctx context.Context) {
 	}()
 }
 
-func (s *JanusSource) negotiate(sdpString string, pluginUrl string) {
-	stream, ctx, err := s.control.StartStream(types.ChannelID(s.ChannelID))
+func (s *Source) negotiate(sdpString string, pluginUrl string) {
+	stream, err := s.control.StartStream(types.ChannelID(s.ChannelID))
 	if err != nil {
 		panic(err)
 	}
@@ -228,7 +229,7 @@ func (s *JanusSource) negotiate(sdpString string, pluginUrl string) {
 		if codec.MimeType == "audio/opus" {
 			s.log.Info("Got Opus track, sending to audio track")
 			for {
-				if ctx.Err() != nil {
+				if err := s.control.ContextErr(); err != nil {
 					return
 				}
 
@@ -242,7 +243,7 @@ func (s *JanusSource) negotiate(sdpString string, pluginUrl string) {
 		} else if codec.MimeType == "video/H264" {
 			s.log.Info("Got H264 track, sending to video track")
 			for {
-				if ctx.Err() != nil {
+				if err := s.control.ContextErr(); err != nil {
 					return
 				}
 

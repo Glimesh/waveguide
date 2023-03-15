@@ -14,11 +14,12 @@ import (
 	"github.com/Glimesh/go-fdkaac/fdkaac"
 	"github.com/Glimesh/waveguide/pkg/control"
 	"github.com/Glimesh/waveguide/pkg/types"
+
 	h264joy "github.com/nareix/joy5/codec/h264"
-	"github.com/pion/rtp"
-	"github.com/pion/rtp/codecs"
-	"github.com/pion/webrtc/v3"
-	"github.com/sirupsen/logrus"
+	rtp "github.com/pion/rtp"
+	codecs "github.com/pion/rtp/codecs"
+	webrtc "github.com/pion/webrtc/v3"
+	logrus "github.com/sirupsen/logrus"
 	flvtag "github.com/yutopp/go-flv/tag"
 	gortmp "github.com/yutopp/go-rtmp"
 	rtmpmsg "github.com/yutopp/go-rtmp/message"
@@ -33,7 +34,7 @@ const (
 	BANDWIDTH_LIMIT int = 8000 * 1000
 )
 
-type RTMPSource struct {
+type Source struct {
 	log     logrus.FieldLogger
 	control *control.Control
 
@@ -41,21 +42,21 @@ type RTMPSource struct {
 	Address string
 }
 
-func New(address string) *RTMPSource {
-	return &RTMPSource{
+func New(address string) *Source {
+	return &Source{ //nolint exhaustive struct
 		Address: address,
 	}
 }
 
-func (s *RTMPSource) SetControl(ctrl *control.Control) {
+func (s *Source) SetControl(ctrl *control.Control) {
 	s.control = ctrl
 }
 
-func (s *RTMPSource) SetLogger(log logrus.FieldLogger) {
+func (s *Source) SetLogger(log logrus.FieldLogger) {
 	s.log = log
 }
 
-func (s *RTMPSource) Listen(ctx context.Context) {
+func (s *Source) Listen(ctx context.Context) {
 	tcpAddr, err := net.ResolveTCPAddr("tcp", s.Address)
 	if err != nil {
 		s.log.Errorf("Failed: %+v", err)
@@ -70,14 +71,14 @@ func (s *RTMPSource) Listen(ctx context.Context) {
 
 	srv := gortmp.NewServer(&gortmp.ServerConfig{
 		OnConnect: func(conn net.Conn) (io.ReadWriteCloser, *gortmp.ConnConfig) {
-			return conn, &gortmp.ConnConfig{
-				Handler: &connHandler{
+			return conn, &gortmp.ConnConfig{ //nolint exhaustive struct
+				Handler: &connHandler{ //nolint exhaustive struct
 					control:                s.control,
 					log:                    s.log,
 					stopMetadataCollection: make(chan bool, 1),
 				},
 
-				ControlState: gortmp.StreamControlStateConfig{
+				ControlState: gortmp.StreamControlStateConfig{ //nolint exhaustive struct
 					DefaultBandwidthWindowSize: 6 * 1024 * 1024 / 8,
 				},
 				Logger: s.log.WithField("app", "yutopp/go-rtmp"),
@@ -91,8 +92,8 @@ func (s *RTMPSource) Listen(ctx context.Context) {
 
 type connHandler struct {
 	gortmp.DefaultHandler
-	control    *control.Control
-	controlCtx context.Context
+	control *control.Control
+	// controlCtx context.Context
 
 	log logrus.FieldLogger
 
@@ -175,7 +176,7 @@ func (h *connHandler) OnPublish(ctx *gortmp.StreamContext, timestamp uint32, cmd
 		return err
 	}
 
-	h.stream, h.controlCtx, err = h.control.StartStream(h.channelID)
+	h.stream, err = h.control.StartStream(h.channelID)
 	if err != nil {
 		h.log.Error(err)
 		return err
@@ -213,7 +214,7 @@ func (h *connHandler) OnClose() {
 
 	// We only want to publish the stop if it's ours
 	// We also don't want control to stop the stream if we're respond to a stop
-	if h.authenticated && h.controlCtx.Err() == nil {
+	if h.authenticated && h.control.ContextErr() == nil {
 		// StopStream mainly calls external services, there's a chance this call can hang for a bit while the other services are processing
 		// However it's not safe to call RemoveStream until this is finished or the pointer wont... exist?
 		if err := h.control.StopStream(h.channelID); err != nil {
@@ -233,9 +234,20 @@ func (h *connHandler) OnClose() {
 
 func (h *connHandler) initAudio(clockRate uint32) (err error) {
 	h.audioSequencer = rtp.NewFixedSequencer(0) // ftl client says this should be changed to a random value
-	h.audioPacketizer = rtp.NewPacketizer(FTL_MTU, FTL_AUDIO_PT, uint32(h.channelID), &codecs.OpusPayloader{}, h.audioSequencer, clockRate)
+	h.audioPacketizer = rtp.NewPacketizer(
+		FTL_MTU,
+		FTL_AUDIO_PT,
+		uint32(h.channelID),
+		&codecs.OpusPayloader{},
+		h.audioSequencer,
+		clockRate,
+	)
 
-	h.audioTrack, err = webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus}, "audio", "pion")
+	h.audioTrack, err = webrtc.NewTrackLocalStaticRTP(
+		webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus}, //nolint exhaustive struct
+		"audio",
+		"pion",
+	)
 	if err != nil {
 		return err
 	}
@@ -256,8 +268,8 @@ func (h *connHandler) OnAudio(timestamp uint32, payload io.Reader) error {
 	if h.errored {
 		return errors.New("stream is not longer authenticated")
 	}
-	if h.controlCtx.Err() != nil {
-		return h.controlCtx.Err()
+	if err := h.control.ContextErr(); err != nil {
+		return err
 	}
 
 	// Convert AAC to opus
@@ -311,22 +323,32 @@ func (h *connHandler) OnAudio(timestamp uint32, payload io.Reader) error {
 			}
 		}
 
-		h.stream.ReportMetadata(control.AudioPacketsMetadata(len(packets)))
+		h.stream.ReportMetadata(control.AudioPacketsMetadata(len(packets))) //nolint exhaustive struct
 	}
 
 	return nil
 }
 
-func (h *connHandler) initVideo(clockRate uint32) (err error) {
+func (h *connHandler) initVideo(clockRate uint32) error {
 	h.videoSequencer = rtp.NewFixedSequencer(25000)
-	h.videoPacketizer = rtp.NewPacketizer(FTL_MTU, FTL_VIDEO_PT, uint32(h.channelID+1), &codecs.H264Payloader{}, h.videoSequencer, clockRate)
+	h.videoPacketizer = rtp.NewPacketizer(
+		FTL_MTU,
+		FTL_VIDEO_PT,
+		uint32(h.channelID+1),
+		&codecs.H264Payloader{},
+		h.videoSequencer, clockRate,
+	)
 
-	h.videoTrack, err = webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264}, "video", "pion")
+	track, err := webrtc.NewTrackLocalStaticRTP(
+		webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264}, //nolint exhaustive struct
+		"video",
+		"pion",
+	)
 	if err != nil {
 		return err
 	}
-
-	h.stream.AddTrack(h.videoTrack, webrtc.MimeTypeH264)
+	h.videoTrack = track
+	h.stream.AddTrack(track, webrtc.MimeTypeH264)
 	h.stream.ReportMetadata(control.VideoCodecMetadata(webrtc.MimeTypeH264))
 
 	return nil
@@ -336,8 +358,8 @@ func (h *connHandler) OnVideo(timestamp uint32, payload io.Reader) error {
 	if h.errored {
 		return errors.New("stream is not longer authenticated")
 	}
-	if h.controlCtx.Err() != nil {
-		return h.controlCtx.Err()
+	if err := h.control.ContextErr(); err != nil {
+		return err
 	}
 
 	var video flvtag.VideoData
@@ -350,10 +372,10 @@ func (h *connHandler) OnVideo(timestamp uint32, payload io.Reader) error {
 
 	switch video.FrameType {
 	case flvtag.FrameTypeKeyFrame:
-		h.lastKeyFrames += 1
-		h.keyframes += 1
+		h.lastKeyFrames++
+		h.keyframes++
 	case flvtag.FrameTypeInterFrame:
-		h.lastInterFrames += 1
+		h.lastInterFrames++
 	default:
 		h.log.Debug("Unknown FLV Video Frame: %+v\n", video)
 	}

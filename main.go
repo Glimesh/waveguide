@@ -8,10 +8,11 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/Glimesh/waveguide/config"
+	config "github.com/Glimesh/waveguide/config"
 	inputs "github.com/Glimesh/waveguide/internal/inputs"
 	outputs "github.com/Glimesh/waveguide/internal/outputs"
-	"github.com/Glimesh/waveguide/pkg/control"
+	control "github.com/Glimesh/waveguide/pkg/control"
+
 	"github.com/sirupsen/logrus"
 )
 
@@ -41,9 +42,12 @@ func main() {
 	}
 	log.SetLevel(level)
 
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(
+		context.Background(),
+		os.Interrupt, syscall.SIGTERM, syscall.SIGINT,
+	)
 
-	ctrl, err := control.New(cfg, hostname, log)
+	ctrl, err := control.New(ctx, cfg, hostname, log)
 	if err != nil {
 		log.Fatalf("failed to create control: %v", err)
 	}
@@ -60,14 +64,10 @@ func main() {
 	}
 	out.Start(ctx)
 
-	c := make(chan os.Signal)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-c
-		log.Info("Exiting Waveguide and cleaning up")
-		ctrl.Shutdown()
-		os.Exit(0)
-	}()
+	go ctrl.StartHTTPServer()
 
-	ctrl.StartHTTPServer()
+	<-ctx.Done()
+	stop()
+	log.Info("Exiting Waveguide and cleaning up")
+	ctrl.Shutdown()
 }
