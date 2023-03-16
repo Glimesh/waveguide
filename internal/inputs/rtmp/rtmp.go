@@ -208,9 +208,10 @@ func (h *connHandler) OnPublish(ctx *gortmp.StreamContext, timestamp uint32, cmd
 }
 
 func (h *connHandler) OnClose() {
-	h.log.Info("OnClose")
+	h.log.Info("RTMP OnClose")
 
 	h.stopMetadataCollection <- true
+	h.log.Debug("sent stop metadata collection signal")
 
 	// We only want to publish the stop if it's ours
 	// We also don't want control to stop the stream if we're respond to a stop
