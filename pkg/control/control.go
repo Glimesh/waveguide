@@ -128,7 +128,9 @@ func (ctrl *Control) Authenticate(channelID types.ChannelID, streamKey types.Str
 }
 
 func (ctrl *Control) StartStream(channelID types.ChannelID) (*Stream, error) {
-	stream, err := ctrl.newStream(channelID)
+	ctx, cancel := context.WithCancel(ctrl.Context())
+
+	stream, err := ctrl.newStream(channelID, cancel)
 	if err != nil {
 		return nil, err
 	}
@@ -153,7 +155,7 @@ func (ctrl *Control) StartStream(channelID types.ChannelID) (*Stream, error) {
 	// Really gross, I'm sorry.
 	whepEndpoint := fmt.Sprintf("%s/whep/endpoint", ctrl.HTTPServerURL())
 	go func() {
-		err := stream.thumbnailer(ctrl.Context(), whepEndpoint)
+		err := stream.thumbnailer(ctx, whepEndpoint)
 		if err != nil {
 			stream.log.Error(err)
 			ctrl.StopStream(channelID)
@@ -169,10 +171,8 @@ func (ctrl *Control) StopStream(channelID types.ChannelID) error {
 		return err
 	}
 
-	stream.log.Infof("Stopping stream")
+	stream.Stop()
 
-	stream.stopHeartbeat <- struct{}{} // not being used anywhere, is it really needed?
-	stream.stopThumbnailer <- struct{}{}
 	ctrl.metadataCollectors[channelID] <- true
 
 	// Make sure we send stop commands to everyone, and don't return until they've all been sent
@@ -338,10 +338,11 @@ func (ctrl *Control) sendThumbnail(channelID types.ChannelID) (err error) {
 	return nil
 }
 
-func (ctrl *Control) newStream(channelID types.ChannelID) (*Stream, error) {
+func (ctrl *Control) newStream(channelID types.ChannelID, cancelFunc context.CancelFunc) (*Stream, error) {
 	stream := &Stream{
 		log: ctrl.log.WithField("channel_id", channelID),
 
+		cancelFunc:      cancelFunc,
 		authenticated:   true,
 		mediaStarted:    false,
 		ChannelID:       channelID,

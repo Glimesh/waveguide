@@ -29,24 +29,27 @@ func (s *Stream) thumbnailer(ctx context.Context, whepEndpoint string) error {
 
 		if codec.MimeType == "video/H264" {
 			for {
-				if ctx.Err() != nil {
+				log.Debug("OnTrack loop")
+				select {
+				case <-ctx.Done():
+					log.Debug("received ctx cancel signal")
 					return
-				}
+				default:
+					// Read RTP Packets in a loop
+					p, _, readErr := track.ReadRTP()
+					if readErr != nil {
+						// Don't kill the thumbnailer after one weird RTP packet
+						continue
+					}
 
-				// Read RTP Packets in a loop
-				p, _, readErr := track.ReadRTP()
-				if readErr != nil {
-					// Don't kill the thumbnailer after one weird RTP packet
-					continue
-				}
-
-				keyframe := kfer.WriteRTP(p)
-				if keyframe != nil {
-					// fmt.Printf("!!! PEER KEYFRAME !!! %s\n\n", kfer)
-					// saveImage(int(p.SequenceNumber), keyframe)
-					// os.WriteFile(fmt.Sprintf("%d-peer.h264", p.SequenceNumber), keyframe, 0666)
-					s.lastThumbnail <- keyframe
-					kfer.Reset()
+					keyframe := kfer.WriteRTP(p)
+					if keyframe != nil {
+						// fmt.Printf("!!! PEER KEYFRAME !!! %s\n\n", kfer)
+						// saveImage(int(p.SequenceNumber), keyframe)
+						// os.WriteFile(fmt.Sprintf("%d-peer.h264", p.SequenceNumber), keyframe, 0666)
+						s.lastThumbnail <- keyframe
+						kfer.Reset()
+					}
 				}
 			}
 		}

@@ -1,6 +1,7 @@
 package control
 
 import (
+	"context"
 	"errors"
 
 	"github.com/Glimesh/waveguide/pkg/types"
@@ -17,6 +18,8 @@ type StreamTrack struct {
 
 type Stream struct {
 	log logrus.FieldLogger
+
+	cancelFunc context.CancelFunc
 
 	// authenticated is set after the stream has successfully authed with a remote service
 	authenticated bool
@@ -82,4 +85,16 @@ func (s *Stream) ReportMetadata(metadatas ...Metadata) error {
 	}
 
 	return nil
+}
+
+func (s *Stream) Stop() {
+	s.log.Infof("stopping stream")
+
+	s.stopHeartbeat <- struct{}{} // not being used anywhere, is it really needed?
+
+	s.stopThumbnailer <- struct{}{}
+	s.log.Debug("sent stop thumbnailer signal")
+
+	s.cancelFunc()
+	s.log.Debug("canceled stream ctx")
 }
