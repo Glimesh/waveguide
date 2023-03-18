@@ -31,6 +31,7 @@ type Service struct {
 
 func New(endpoint, clientID, clientSecret string) *Service {
 	return &Service{
+		Endpoint: endpoint,
 		tokenUrl: "/api/oauth/token",
 		apiUrl:   "/api/graph",
 	}
