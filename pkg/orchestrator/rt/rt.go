@@ -23,7 +23,7 @@ type Client struct {
 	// Key is the secret key to be used for stateful changes
 	Key string
 	// Needs to be hardcoded for now...
-	WHEPEndpoint string `mapstructure:"whep_endpoint"`
+	WHEPEndpoint string
 }
 
 func New(hostname, endpoint, key, whepEndpoint string) *Client {
