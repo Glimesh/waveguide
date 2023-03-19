@@ -13,7 +13,7 @@ import (
 // Note: This type of functionality will be common in Waveguide
 // However we should not do it like this :D
 func (s *Stream) thumbnailer(ctx context.Context, whepEndpoint string) error {
-	log := s.log.WithField("app", "peersnap")
+	log := s.log.WithField("app", "thumbnailer")
 
 	log.Info("Started Thumbnailer")
 	// Create a new PeerConnection
@@ -29,7 +29,6 @@ func (s *Stream) thumbnailer(ctx context.Context, whepEndpoint string) error {
 
 		if codec.MimeType == "video/H264" {
 			for {
-				log.Debug("OnTrack loop")
 				select {
 				case <-ctx.Done():
 					log.Debug("received ctx cancel signal")
