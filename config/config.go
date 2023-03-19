@@ -70,9 +70,9 @@ type Config struct {
 
 		Address        string `fig:"http_address"`
 		HTTPServerType string `fig:"http_server_type"`
-		HTTPSHostname  string `mapstructure:"https_hostname"`
-		HTTPSCert      string `mapstructure:"https_cert"`
-		HTTPSKey       string `mapstructure:"https_key"`
+		HTTPSHostname  string `fig:"https_hostname"`
+		HTTPSCert      string `fig:"https_cert"`
+		HTTPSKey       string `fig:"https_key"`
 	}
 }
 

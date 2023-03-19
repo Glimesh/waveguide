@@ -40,7 +40,7 @@ func New(cfg config.Config, hostname string, logger *logrus.Logger) Orchestrator
 
 	var or Orchestrator
 
-	switch cfg.Orchestrator.Type {
+	switch orCfg.Type {
 	case "dummy":
 		or = dummy.New(dummy.Config{}, hostname)
 	case "rt":
