@@ -32,7 +32,7 @@ func (kf *Keyframer) Reset() {
 	kf.packets = make(map[uint16][]byte)
 }
 
-func (kf *Keyframer) WriteRTP(p *rtp.Packet) []byte {
+func (kf *Keyframer) KeyFrame(p *rtp.Packet) []byte {
 	// fmt.Printf("frameStarted=%t\n", kf.frameStarted)
 	// Frame has started, but timestamps don't match, continue
 	if kf.frameStarted && kf.timestamp != p.Timestamp {
@@ -79,10 +79,7 @@ func (kf *Keyframer) WriteRTP(p *rtp.Packet) []byte {
 		kf.lastFullKeyframe = newFrame
 
 		return newFrame
-	} else {
-		// fmt.Println("No marker, no end")
 	}
-	// fmt.Println(p)
 
 	return nil
 }

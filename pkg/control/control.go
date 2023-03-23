@@ -14,6 +14,7 @@ import (
 	"github.com/Glimesh/waveguide/pkg/orchestrator"
 	"github.com/Glimesh/waveguide/pkg/service"
 	"github.com/Glimesh/waveguide/pkg/types"
+	"github.com/pion/rtp"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -128,7 +129,7 @@ func (ctrl *Control) Authenticate(channelID types.ChannelID, streamKey types.Str
 }
 
 func (ctrl *Control) StartStream(channelID types.ChannelID) (*Stream, error) {
-	ctx, cancel := context.WithCancel(ctrl.Context())
+	ctx, cancel := context.WithCancelCause(ctrl.Context())
 
 	stream, err := ctrl.newStream(channelID, cancel)
 	if err != nil {
@@ -152,11 +153,8 @@ func (ctrl *Control) StartStream(channelID types.ChannelID) (*Stream, error) {
 
 	go ctrl.setupHeartbeat(channelID)
 
-	// Really gross, I'm sorry.
-	whepEndpoint := fmt.Sprintf("%s/whep/endpoint", ctrl.HTTPServerURL())
 	go func() {
-		err := stream.thumbnailer(ctx, whepEndpoint)
-		if err != nil {
+		if err := stream.Ingest(ctx); err != nil { //nolint not shadowed
 			stream.log.Error(err)
 			ctrl.StopStream(channelID)
 		}
@@ -338,23 +336,23 @@ func (ctrl *Control) sendThumbnail(channelID types.ChannelID) (err error) {
 	return nil
 }
 
-func (ctrl *Control) newStream(channelID types.ChannelID, cancelFunc context.CancelFunc) (*Stream, error) {
+func (ctrl *Control) newStream(channelID types.ChannelID, cancelFunc context.CancelCauseFunc) (*Stream, error) {
 	stream := &Stream{
-		log: ctrl.log.WithField("channel_id", channelID),
+		ChannelID: channelID,
+
+		log:           ctrl.log.WithField("channel_id", channelID),
+		whepURI:       ctrl.HTTPServerURL() + "/whep/endpoint/" + channelID.String(),
+		authenticated: true,
 
 		cancelFunc:      cancelFunc,
-		authenticated:   true,
-		mediaStarted:    false,
-		ChannelID:       channelID,
+		keyframer:       NewKeyframer(),
+		rtpIngest:       make(chan *rtp.Packet),
 		stopHeartbeat:   make(chan struct{}, 1),
 		stopThumbnailer: make(chan struct{}, 1),
 		// 10 keyframes in 5 seconds is probably a bit extreme
-		lastThumbnail:       make(chan []byte, 10),
-		startTime:           time.Now().Unix(),
-		totalAudioPackets:   0,
-		totalVideoPackets:   0,
-		clientVendorName:    "",
-		clientVendorVersion: "",
+		lastThumbnail: make(chan []byte, 10),
+
+		startTime: time.Now().Unix(),
 	}
 
 	if _, exists := ctrl.streams[channelID]; exists {

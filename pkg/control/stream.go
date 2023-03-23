@@ -6,6 +6,7 @@ import (
 
 	"github.com/Glimesh/waveguide/pkg/types"
 
+	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v3"
 	"github.com/sirupsen/logrus"
 )
@@ -19,21 +20,24 @@ type StreamTrack struct {
 type Stream struct {
 	log logrus.FieldLogger
 
-	cancelFunc context.CancelFunc
+	cancelFunc context.CancelCauseFunc
 
 	// authenticated is set after the stream has successfully authed with a remote service
 	authenticated bool
+
+	whepURI string
+
 	// mediaStarted is set after media bytes have come in from the client
 	mediaStarted bool
 	hasSomeAudio bool
 	hasSomeVideo bool
 
-	stopHeartbeat chan struct{}
-
+	keyframer     *Keyframer
+	rtpIngest     chan *rtp.Packet
+	lastThumbnail chan []byte
 	// channel used to signal thumbnailer to stop
 	stopThumbnailer chan struct{}
-
-	lastThumbnail chan []byte
+	stopHeartbeat   chan struct{}
 
 	ChannelID types.ChannelID
 	StreamID  types.StreamID
@@ -90,11 +94,10 @@ func (s *Stream) ReportMetadata(metadatas ...Metadata) error {
 func (s *Stream) Stop() {
 	s.log.Infof("stopping stream")
 
+	s.cancelFunc(errors.New("stream stopped"))
 	s.stopHeartbeat <- struct{}{} // not being used anywhere, is it really needed?
 
-	s.stopThumbnailer <- struct{}{}
 	s.log.Debug("sent stop thumbnailer signal")
 
-	s.cancelFunc()
 	s.log.Debug("canceled stream ctx")
 }

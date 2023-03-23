@@ -1,117 +1,150 @@
 package control
 
 import (
-	"bytes"
 	"context"
-	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/pion/webrtc/v3"
+	"github.com/pion/webrtc/v3/pkg/media/h264writer"
 )
 
-// Note: This type of functionality will be common in Waveguide
-// However we should not do it like this :D
-func (s *Stream) thumbnailer(ctx context.Context, whepEndpoint string) error {
-	log := s.log.WithField("app", "thumbnailer")
+type header struct {
+	key   string
+	value string
+}
 
-	log.Info("Started Thumbnailer")
-	// Create a new PeerConnection
-	peerConnection, err := webrtc.NewPeerConnection(webrtc.Configuration{}) //nolint exhaustive struct
+func (s *Stream) Ingest(ctx context.Context) error {
+	logger := s.log.WithField("app", "ingest")
+	done := make(chan struct{}, 1)
+	go s.startIngestor(done)
+
+	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{}) //nolint exhaustive struct
 	if err != nil {
 		return err
 	}
-	defer peerConnection.Close()
+	defer pc.Close()
 
-	peerConnection.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
-		kfer := NewKeyframer()
-		codec := track.Codec()
+	pc.OnTrack(s.onTrackHandler())
 
-		if codec.MimeType == "video/H264" {
-			for {
-				select {
-				case <-ctx.Done():
-					log.Debug("received ctx cancel signal")
-					return
-				default:
-					// Read RTP Packets in a loop
-					p, _, readErr := track.ReadRTP()
-					if readErr != nil {
-						// Don't kill the thumbnailer after one weird RTP packet
-						continue
-					}
-
-					keyframe := kfer.WriteRTP(p)
-					if keyframe != nil {
-						// fmt.Printf("!!! PEER KEYFRAME !!! %s\n\n", kfer)
-						// saveImage(int(p.SequenceNumber), keyframe)
-						// os.WriteFile(fmt.Sprintf("%d-peer.h264", p.SequenceNumber), keyframe, 0666)
-						s.lastThumbnail <- keyframe
-						kfer.Reset()
-					}
-				}
-			}
-		}
-	})
-
-	url := fmt.Sprintf("%s/%d", whepEndpoint, s.ChannelID)
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer([]byte{}))
-	if err != nil {
+	if err := s.setupPeerConnection(pc); err != nil {
 		return err
 	}
-	req.Header.Set("Accept", "application/sdp")
+
+	<-ctx.Done()
+	logger.Debug("received ctx done signal")
+	done <- struct{}{}
+	close(s.rtpIngest)
+
+	return nil
+}
+
+func doHTTPRequest(uri, method string, body io.Reader, headers ...header) (*http.Response, error) {
+	req, err := http.NewRequest(method, uri, body)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, header := range headers {
+		req.Header.Set(header.key, header.value)
+	}
+
 	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	return resp, nil
+}
+
+type Option struct {
+	VideoWriter *h264writer.H264Writer
+}
+
+func (s *Stream) setupPeerConnection(pc *webrtc.PeerConnection) error {
+	sdpHeader := header{"Accept", "application/sdp"}
+	resp, err := doHTTPRequest(
+		s.whepURI,
+		http.MethodPost,
+		strings.NewReader(""),
+		sdpHeader,
+	)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
+
+	offer, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return err
 	}
 
-	if err := peerConnection.SetRemoteDescription(webrtc.SessionDescription{
-		Type: webrtc.SDPTypeOffer,
-		SDP:  string(body),
-	}); err != nil {
+	if err := pc.SetRemoteDescription(
+		webrtc.SessionDescription{
+			Type: webrtc.SDPTypeOffer,
+			SDP:  string(offer),
+		}); err != nil {
 		return err
 	}
 
-	answer, err := peerConnection.CreateAnswer(nil)
+	answerSDP, err := pc.CreateAnswer(nil)
 	if err != nil {
 		return err
 	}
 
-	// Create channel that is blocked until ICE Gathering is complete
-	gatherComplete := webrtc.GatheringCompletePromise(peerConnection)
-
-	if err := peerConnection.SetLocalDescription(answer); err != nil {
+	gatherComplete := webrtc.GatheringCompletePromise(pc)
+	if err := pc.SetLocalDescription(answerSDP); err != nil {
 		return err
 	}
-
-	// Block until ICE Gathering is complete, disabling trickle ICE
-	// we do this because we only can exchange one signaling message
-	// in a production application you should exchange ICE Candidates via OnICECandidate
 	<-gatherComplete
 
-	answerSdp := peerConnection.LocalDescription().SDP
-	req2, err := http.NewRequest("POST", resp.Header.Get("location"), bytes.NewBufferString(answerSdp))
+	answer := pc.LocalDescription().SDP
+	_, err = doHTTPRequest( //nolint response is ignored
+		resp.Header.Get("location"),
+		http.MethodPost,
+		strings.NewReader(answer),
+		sdpHeader,
+	)
 	if err != nil {
 		return err
 	}
-	req2.Header.Set("Accept", "application/sdp")
-	_, err = http.DefaultClient.Do(req2)
-	if err != nil {
-		return err
-	}
-
-	select {
-	case <-ctx.Done():
-		log.Debug("received ctx done signal")
-	case <-s.stopThumbnailer:
-		log.Debug("received kill peersnap signal")
-	}
-	log.Info("ending thumbnailer")
 
 	return nil
+}
+
+func (s *Stream) onTrackHandler() func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
+	return func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
+		codec := track.Codec()
+
+		if codec.MimeType == "video/H264" {
+			for {
+				p, _, readErr := track.ReadRTP()
+				if readErr != nil {
+					continue
+				}
+				select {
+				case s.rtpIngest <- p:
+				default:
+				}
+			}
+		}
+	}
+}
+
+func (s *Stream) startIngestor(done <-chan struct{}) {
+LOOP:
+	for {
+		select {
+		case p := <-s.rtpIngest:
+			keyframe := s.keyframer.KeyFrame(p)
+			if keyframe != nil {
+				s.lastThumbnail <- keyframe
+				s.keyframer.Reset()
+			}
+		case <-done:
+			break LOOP
+		}
+	}
+	s.log.Debug("ending rtp ingestor")
 }
