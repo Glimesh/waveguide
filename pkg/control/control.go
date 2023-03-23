@@ -7,6 +7,7 @@ import (
 	"image"
 	"image/jpeg"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/Glimesh/waveguide/config"
@@ -14,6 +15,7 @@ import (
 	"github.com/Glimesh/waveguide/pkg/orchestrator"
 	"github.com/Glimesh/waveguide/pkg/service"
 	"github.com/Glimesh/waveguide/pkg/types"
+	"github.com/pion/rtp"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -152,11 +154,8 @@ func (ctrl *Control) StartStream(channelID types.ChannelID) (*Stream, error) {
 
 	go ctrl.setupHeartbeat(channelID)
 
-	// Really gross, I'm sorry.
-	whepEndpoint := fmt.Sprintf("%s/whep/endpoint", ctrl.HTTPServerURL())
 	go func() {
-		err := stream.thumbnailer(ctx, whepEndpoint)
-		if err != nil {
+		if err := stream.Ingest(ctx); err != nil { //nolint not shadowed
 			stream.log.Error(err)
 			ctrl.StopStream(channelID)
 		}
@@ -180,6 +179,7 @@ func (ctrl *Control) StopStream(channelID types.ChannelID) error {
 		stream.Stop()
 	}
 	ctrl.metadataCollectors[channelID] <- true
+	ctrl.log.Debug("sent metadata collector signal")
 
 	// Make sure we send stop commands to everyone, and don't return until they've all been sent
 	serviceErr := ctrl.service.EndStream(stream.StreamID)
@@ -295,6 +295,19 @@ func (ctrl *Control) sendThumbnail(channelID types.ChannelID) (err error) {
 		return err
 	}
 
+	// stream.cond.L.Lock()
+	// stream.thumbnailRequested = true
+	// stream.cond.Broadcast()
+	// stream.cond.L.Unlock()
+
+	// signal the stream thumnailer to get me some thumbnails
+	select {
+	case stream.requestThumbnail <- struct{}{}:
+	default:
+	}
+
+	ctrl.log.Debug("thumbnail requested")
+
 	var data []byte
 	// Since stream.lastThumbnail is a buffered chan, let's read all values to get the newest
 	for len(stream.lastThumbnail) > 0 {
@@ -343,22 +356,27 @@ func (ctrl *Control) sendThumbnail(channelID types.ChannelID) (err error) {
 }
 
 func (ctrl *Control) newStream(channelID types.ChannelID, cancelFunc context.CancelFunc) (*Stream, error) {
-	stream := &Stream{
-		log: ctrl.log.WithField("channel_id", channelID),
+	stream := &Stream{ //nolint exhaustive struct
+		ChannelID: channelID,
 
-		cancelFunc:      cancelFunc,
-		authenticated:   true,
-		mediaStarted:    false,
-		ChannelID:       channelID,
-		stopHeartbeat:   make(chan struct{}, 1),
-		stopThumbnailer: make(chan struct{}, 1),
+		log:           ctrl.log.WithField("channel_id", channelID),
+		whepURI:       ctrl.HTTPServerURL() + "/whep/endpoint/" + channelID.String(),
+		authenticated: true,
+
+		cancelFunc:         cancelFunc,
+		keyframer:          NewKeyframer(),
+		rtpIngest:          make(chan *rtp.Packet),
+		stopHeartbeat:      make(chan struct{}, 1),
+		stopThumbnailer:    make(chan struct{}, 1),
+		thumbnailReceiver:  make(chan *rtp.Packet, 50),
+		cond:               sync.Cond{L: &sync.Mutex{}},
+		requestThumbnail:   make(chan struct{}, 1),
+		thumbnailRequested: false,
+
 		// 10 keyframes in 5 seconds is probably a bit extreme
-		lastThumbnail:       make(chan []byte, 10),
-		startTime:           time.Now().Unix(),
-		totalAudioPackets:   0,
-		totalVideoPackets:   0,
-		clientVendorName:    "",
-		clientVendorVersion: "",
+		lastThumbnail: make(chan []byte, 1),
+
+		startTime: time.Now().Unix(),
 	}
 
 	if _, exists := ctrl.streams[channelID]; exists {

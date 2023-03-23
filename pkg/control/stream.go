@@ -3,9 +3,11 @@ package control
 import (
 	"context"
 	"errors"
+	"sync"
 
 	"github.com/Glimesh/waveguide/pkg/types"
 
+	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v3"
 	"github.com/sirupsen/logrus"
 )
@@ -24,17 +26,24 @@ type Stream struct {
 
 	// authenticated is set after the stream has successfully authed with a remote service
 	authenticated bool
+
+	whepURI string
+
 	// mediaStarted is set after media bytes have come in from the client
 	mediaStarted bool
 	hasSomeAudio bool
 	hasSomeVideo bool
 
-	stopHeartbeat chan struct{}
-
-	// channel used to signal thumbnailer to stop
-	stopThumbnailer chan struct{}
-
+	keyframer     *Keyframer
+	rtpIngest     chan *rtp.Packet
 	lastThumbnail chan []byte
+	// channel used to signal thumbnailer to stop
+	stopThumbnailer    chan struct{}
+	stopHeartbeat      chan struct{}
+	requestThumbnail   chan struct{}
+	thumbnailReceiver  chan *rtp.Packet
+	cond               sync.Cond
+	thumbnailRequested bool
 
 	ChannelID types.ChannelID
 	StreamID  types.StreamID
@@ -91,13 +100,11 @@ func (s *Stream) ReportMetadata(metadatas ...Metadata) error {
 func (s *Stream) Stop() {
 	s.log.Infof("stopping stream")
 
+	s.cancelFunc()
 	s.stopHeartbeat <- struct{}{} // not being used anywhere, is it really needed?
 
-	s.stopThumbnailer <- struct{}{}
 	s.log.Debug("sent stop thumbnailer signal")
 
-	s.cancelFunc()
-	s.stopped = true
 	s.log.Debug("canceled stream ctx")
 }
 
