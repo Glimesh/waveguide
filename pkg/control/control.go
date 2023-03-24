@@ -129,7 +129,7 @@ func (ctrl *Control) Authenticate(channelID types.ChannelID, streamKey types.Str
 }
 
 func (ctrl *Control) StartStream(channelID types.ChannelID) (*Stream, error) {
-	ctx, cancel := context.WithCancelCause(ctrl.Context())
+	ctx, cancel := context.WithCancel(ctrl.Context())
 
 	stream, err := ctrl.newStream(channelID, cancel)
 	if err != nil {
@@ -336,7 +336,7 @@ func (ctrl *Control) sendThumbnail(channelID types.ChannelID) (err error) {
 	return nil
 }
 
-func (ctrl *Control) newStream(channelID types.ChannelID, cancelFunc context.CancelCauseFunc) (*Stream, error) {
+func (ctrl *Control) newStream(channelID types.ChannelID, cancelFunc context.CancelFunc) (*Stream, error) {
 	stream := &Stream{
 		ChannelID: channelID,
 

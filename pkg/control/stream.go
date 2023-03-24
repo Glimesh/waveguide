@@ -20,7 +20,7 @@ type StreamTrack struct {
 type Stream struct {
 	log logrus.FieldLogger
 
-	cancelFunc context.CancelCauseFunc
+	cancelFunc context.CancelFunc
 
 	// authenticated is set after the stream has successfully authed with a remote service
 	authenticated bool
@@ -94,7 +94,7 @@ func (s *Stream) ReportMetadata(metadatas ...Metadata) error {
 func (s *Stream) Stop() {
 	s.log.Infof("stopping stream")
 
-	s.cancelFunc(errors.New("stream stopped"))
+	s.cancelFunc()
 	s.stopHeartbeat <- struct{}{} // not being used anywhere, is it really needed?
 
 	s.log.Debug("sent stop thumbnailer signal")

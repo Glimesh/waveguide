@@ -26,7 +26,27 @@ func (s *Stream) Ingest(ctx context.Context) error {
 	}
 	defer pc.Close()
 
-	pc.OnTrack(s.onTrackHandler())
+	pc.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
+		codec := track.Codec()
+
+		if codec.MimeType == "video/H264" {
+			for {
+				if ctx.Err() != nil {
+					return
+				}
+
+				p, _, readErr := track.ReadRTP()
+				if readErr != nil {
+					continue
+				}
+
+				select {
+				case s.rtpIngest <- p:
+				default:
+				}
+			}
+		}
+	})
 
 	if err := s.setupPeerConnection(pc); err != nil {
 		return err
@@ -111,25 +131,6 @@ func (s *Stream) setupPeerConnection(pc *webrtc.PeerConnection) error {
 	}
 
 	return nil
-}
-
-func (s *Stream) onTrackHandler() func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
-	return func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
-		codec := track.Codec()
-
-		if codec.MimeType == "video/H264" {
-			for {
-				p, _, readErr := track.ReadRTP()
-				if readErr != nil {
-					continue
-				}
-				select {
-				case s.rtpIngest <- p:
-				default:
-				}
-			}
-		}
-	}
 }
 
 func (s *Stream) startIngestor(done <-chan struct{}) {
