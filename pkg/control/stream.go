@@ -36,8 +36,9 @@ type Stream struct {
 	rtpIngest     chan *rtp.Packet
 	lastThumbnail chan []byte
 	// channel used to signal thumbnailer to stop
-	stopThumbnailer chan struct{}
-	stopHeartbeat   chan struct{}
+	stopThumbnailer  chan struct{}
+	stopHeartbeat    chan struct{}
+	requestThumbnail chan struct{}
 
 	ChannelID types.ChannelID
 	StreamID  types.StreamID
