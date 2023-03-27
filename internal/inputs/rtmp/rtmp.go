@@ -272,6 +272,9 @@ func (h *connHandler) OnAudio(timestamp uint32, payload io.Reader) error {
 	if err := h.control.ContextErr(); err != nil {
 		return err
 	}
+	if h.stream.Stopped() {
+		return errors.New("stream terminated")
+	}
 
 	// Convert AAC to opus
 	var audio flvtag.AudioData
@@ -361,6 +364,9 @@ func (h *connHandler) OnVideo(timestamp uint32, payload io.Reader) error {
 	}
 	if err := h.control.ContextErr(); err != nil {
 		return err
+	}
+	if h.stream.Stopped() {
+		return errors.New("stream terminated")
 	}
 
 	var video flvtag.VideoData

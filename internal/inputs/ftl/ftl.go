@@ -2,6 +2,7 @@ package ftl
 
 import (
 	"context"
+	"errors"
 	"net"
 
 	control "github.com/Glimesh/waveguide/pkg/control"
@@ -128,6 +129,10 @@ func (c *connHandler) OnAudio(packet *rtp.Packet) error {
 	if err := c.control.ContextErr(); err != nil {
 		return err
 	}
+	if c.stream.Stopped() {
+		return errors.New("stream terminated")
+	}
+
 	err := c.audioTrack.WriteRTP(packet)
 
 	c.stream.ReportMetadata(control.AudioPacketsMetadata(len(packet.Payload)))
@@ -138,6 +143,9 @@ func (c *connHandler) OnAudio(packet *rtp.Packet) error {
 func (c *connHandler) OnVideo(packet *rtp.Packet) error {
 	if err := c.control.ContextErr(); err != nil {
 		return err
+	}
+	if c.stream.Stopped() {
+		return errors.New("stream terminated")
 	}
 
 	// Write the RTP packet immediately, log after

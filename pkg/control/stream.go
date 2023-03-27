@@ -20,6 +20,7 @@ type Stream struct {
 	log logrus.FieldLogger
 
 	cancelFunc context.CancelFunc
+	stopped    bool
 
 	// authenticated is set after the stream has successfully authed with a remote service
 	authenticated bool
@@ -96,5 +97,10 @@ func (s *Stream) Stop() {
 	s.log.Debug("sent stop thumbnailer signal")
 
 	s.cancelFunc()
+	s.stopped = true
 	s.log.Debug("canceled stream ctx")
+}
+
+func (s *Stream) Stopped() bool {
+	return s.stopped
 }
