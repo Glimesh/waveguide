@@ -166,13 +166,19 @@ func (ctrl *Control) StartStream(channelID types.ChannelID) (*Stream, error) {
 }
 
 func (ctrl *Control) StopStream(channelID types.ChannelID) error {
+	// StopStream is called
+	ctrl.log.Debug("Stop Stream")
 	stream, err := ctrl.getStream(channelID)
 	if err != nil {
+		if errors.Is(err, errStreamRemoved) {
+			return nil
+		}
 		return err
 	}
 
-	stream.Stop()
-
+	if !stream.Stopped() {
+		stream.Stop()
+	}
 	ctrl.metadataCollectors[channelID] <- true
 
 	// Make sure we send stop commands to everyone, and don't return until they've all been sent
@@ -204,59 +210,57 @@ var (
 
 func (ctrl *Control) setupHeartbeat(channelID types.ChannelID) {
 	ticker := time.NewTicker(15 * time.Second)
-	go func() {
-		tickFailed := 0
+	tickFailed := 0
 
-		stream, err := ctrl.getStream(channelID)
-		if err != nil {
-			return
-		}
+	stream, err := ctrl.getStream(channelID)
+	if err != nil {
+		return
+	}
 
-		for {
-			select {
-			case <-ticker.C:
-				stream.log.Infof("Collecting metadata tickFailed=%d", tickFailed)
-				var err error
-				hasErrors := false
+	for {
+		select {
+		case <-ticker.C:
+			stream.log.Infof("Collecting metadata tickFailed=%d", tickFailed)
+			var err error
+			hasErrors := false
 
-				err = ctrl.sendThumbnail(channelID)
-				if err != nil {
-					stream.log.Error(errors.Wrap(err, ErrHeartbeatThumbnail.Error()))
-					hasErrors = true
-				}
+			err = ctrl.sendThumbnail(channelID)
+			if err != nil {
+				stream.log.Error(errors.Wrap(err, ErrHeartbeatThumbnail.Error()))
+				hasErrors = true
+			}
 
-				err = ctrl.sendMetadata(channelID)
-				if err != nil {
-					stream.log.Error(errors.Wrap(err, ErrHeartbeatSendMetadata.Error()))
-					hasErrors = true
-				}
+			err = ctrl.sendMetadata(channelID)
+			if err != nil {
+				stream.log.Error(errors.Wrap(err, ErrHeartbeatSendMetadata.Error()))
+				hasErrors = true
+			}
 
-				err = ctrl.orchestrator.Heartbeat(channelID)
-				if err != nil {
-					stream.log.Error(errors.Wrap(err, ErrHeartbeatOrchestratorHeartbeat.Error()))
-					hasErrors = true
-				}
+			err = ctrl.orchestrator.Heartbeat(channelID)
+			if err != nil {
+				stream.log.Error(errors.Wrap(err, ErrHeartbeatOrchestratorHeartbeat.Error()))
+				hasErrors = true
+			}
 
-				if hasErrors {
-					tickFailed++
-				} else if tickFailed > 0 {
-					tickFailed--
-				}
+			if hasErrors {
+				tickFailed++
+			} else if tickFailed > 0 {
+				tickFailed--
+			}
 
-				// Look for 3 consecutive failures
-				if tickFailed >= 5 {
-					stream.log.Warn("Stopping stream due to excessive heartbeat errors")
-					ctrl.StopStream(channelID)
-					ticker.Stop()
-					return
-				}
-
-			case <-ctrl.metadataCollectors[channelID]:
+			// Look for 3 consecutive failures
+			if tickFailed >= 5 {
+				stream.log.Warn("Stopping stream due to excessive heartbeat errors")
+				stream.Stop()
 				ticker.Stop()
 				return
 			}
+
+		case <-ctrl.metadataCollectors[channelID]:
+			ticker.Stop()
+			return
 		}
-	}()
+	}
 }
 
 func (ctrl *Control) sendMetadata(channelID types.ChannelID) error {
@@ -377,9 +381,11 @@ func (ctrl *Control) removeStream(id types.ChannelID) error {
 	return nil
 }
 
+var errStreamRemoved = errors.New("stream does not exist in state")
+
 func (ctrl *Control) getStream(id types.ChannelID) (*Stream, error) {
 	if _, exists := ctrl.streams[id]; !exists {
-		return &Stream{}, errors.New("GetStream stream does not exist in state")
+		return nil, errStreamRemoved
 	}
 	return ctrl.streams[id], nil
 }

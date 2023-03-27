@@ -87,7 +87,7 @@ func (s *Source) Listen(ctx context.Context) {
 		// * works around latency issues with Sleep (see https://github.com/golang/go/issues/44343)
 		ticker := time.NewTicker(h264FrameDuration)
 		for ; true; <-ticker.C {
-			if ctx.Err() != nil {
+			if ctx.Err() != nil || stream.Stopped() {
 				return
 			}
 
