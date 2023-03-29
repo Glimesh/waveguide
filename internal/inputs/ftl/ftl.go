@@ -135,7 +135,7 @@ func (c *connHandler) OnAudio(packet *rtp.Packet) error {
 
 	err := c.audioTrack.WriteRTP(packet)
 
-	c.stream.ReportMetadata(control.AudioPacketsMetadata(len(packet.Payload)))
+	c.stream.ReportMetadata(control.AudioPacketsMetadata(1))
 
 	return err
 }
@@ -151,7 +151,7 @@ func (c *connHandler) OnVideo(packet *rtp.Packet) error {
 	// Write the RTP packet immediately, log after
 	err := c.videoTrack.WriteRTP(packet)
 
-	c.stream.ReportMetadata(control.VideoPacketsMetadata(len(packet.Payload)))
+	c.stream.ReportMetadata(control.VideoPacketsMetadata(1))
 
 	return err
 }

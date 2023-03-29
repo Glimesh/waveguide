@@ -327,7 +327,7 @@ func (h *connHandler) OnAudio(timestamp uint32, payload io.Reader) error {
 			}
 		}
 
-		h.stream.ReportMetadata(control.AudioPacketsMetadata(len(packets))) //nolint exhaustive struct
+		h.stream.ReportMetadata(control.AudioPacketsMetadata(1)) //nolint exhaustive struct
 	}
 
 	return nil
@@ -429,7 +429,7 @@ func (h *connHandler) OnVideo(timestamp uint32, payload io.Reader) error {
 		}
 	}
 
-	h.stream.ReportMetadata(control.VideoPacketsMetadata(len(packets)))
+	h.stream.ReportMetadata(control.VideoPacketsMetadata(1))
 
 	return nil
 }

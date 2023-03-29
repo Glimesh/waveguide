@@ -174,7 +174,7 @@ func (s *Source) Listen(ctx context.Context) {
 						return
 					}
 					audioTrack.WriteRTP(p)
-					stream.ReportMetadata(control.AudioPacketsMetadata(len(p.Payload)))
+					stream.ReportMetadata(control.AudioPacketsMetadata(1))
 				}
 			} else if codec.MimeType == webrtc.MimeTypeH264 {
 				s.log.Info("Got H264 track, sending to video track")
@@ -189,7 +189,7 @@ func (s *Source) Listen(ctx context.Context) {
 						return
 					}
 					videoTrack.WriteRTP(p)
-					stream.ReportMetadata(control.VideoPacketsMetadata(len(p.Payload)))
+					stream.ReportMetadata(control.VideoPacketsMetadata(1))
 				}
 			}
 		})

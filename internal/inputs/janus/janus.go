@@ -238,7 +238,7 @@ func (s *Source) negotiate(sdpString string, pluginUrl string) {
 					panic(err)
 				}
 				audioTrack.WriteRTP(p)
-				stream.ReportMetadata(control.AudioPacketsMetadata(len(p.Payload)))
+				stream.ReportMetadata(control.AudioPacketsMetadata(1))
 			}
 		} else if codec.MimeType == "video/H264" {
 			s.log.Info("Got H264 track, sending to video track")
@@ -252,7 +252,7 @@ func (s *Source) negotiate(sdpString string, pluginUrl string) {
 					panic(err)
 				}
 				videoTrack.WriteRTP(p)
-				stream.ReportMetadata(control.VideoPacketsMetadata(len(p.Payload)))
+				stream.ReportMetadata(control.VideoPacketsMetadata(1))
 			}
 		}
 	})
