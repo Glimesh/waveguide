@@ -3,7 +3,6 @@ package control
 import (
 	"context"
 	"errors"
-	"sync"
 
 	"github.com/Glimesh/waveguide/pkg/types"
 
@@ -38,12 +37,10 @@ type Stream struct {
 	rtpIngest     chan *rtp.Packet
 	lastThumbnail chan []byte
 	// channel used to signal thumbnailer to stop
-	stopThumbnailer    chan struct{}
-	stopHeartbeat      chan struct{}
-	requestThumbnail   chan struct{}
-	thumbnailReceiver  chan *rtp.Packet
-	cond               sync.Cond
-	thumbnailRequested bool
+	stopThumbnailer   chan struct{}
+	stopHeartbeat     chan struct{}
+	requestThumbnail  chan struct{}
+	thumbnailReceiver chan *rtp.Packet
 
 	ChannelID types.ChannelID
 	StreamID  types.StreamID
@@ -100,9 +97,10 @@ func (s *Stream) ReportMetadata(metadatas ...Metadata) error {
 func (s *Stream) Stop() {
 	s.log.Infof("stopping stream")
 
-	s.cancelFunc()
 	s.stopHeartbeat <- struct{}{} // not being used anywhere, is it really needed?
 
+	s.cancelFunc()
+	s.stopped = true
 	s.log.Debug("sent stop thumbnailer signal")
 
 	s.log.Debug("canceled stream ctx")

@@ -7,7 +7,6 @@ import (
 	"image"
 	"image/jpeg"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/Glimesh/waveguide/config"
@@ -363,17 +362,14 @@ func (ctrl *Control) newStream(channelID types.ChannelID, cancelFunc context.Can
 		whepURI:       ctrl.HTTPServerURL() + "/whep/endpoint/" + channelID.String(),
 		authenticated: true,
 
-		cancelFunc:         cancelFunc,
-		keyframer:          NewKeyframer(),
-		rtpIngest:          make(chan *rtp.Packet),
-		stopHeartbeat:      make(chan struct{}, 1),
-		stopThumbnailer:    make(chan struct{}, 1),
-		thumbnailReceiver:  make(chan *rtp.Packet, 50),
-		cond:               sync.Cond{L: &sync.Mutex{}},
-		requestThumbnail:   make(chan struct{}, 1),
-		thumbnailRequested: false,
+		cancelFunc:        cancelFunc,
+		keyframer:         NewKeyframer(),
+		rtpIngest:         make(chan *rtp.Packet),
+		stopHeartbeat:     make(chan struct{}, 1),
+		stopThumbnailer:   make(chan struct{}, 1),
+		thumbnailReceiver: make(chan *rtp.Packet, 50),
+		requestThumbnail:  make(chan struct{}, 1),
 
-		// 10 keyframes in 5 seconds is probably a bit extreme
 		lastThumbnail: make(chan []byte, 1),
 
 		startTime: time.Now().Unix(),
