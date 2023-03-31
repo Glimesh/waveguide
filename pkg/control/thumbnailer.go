@@ -111,7 +111,7 @@ func (s *Stream) thumbnailer(ctx context.Context, whepEndpoint string) error {
 	case <-s.stopThumbnailer:
 		log.Debug("received kill peersnap signal")
 	}
-	log.Info("ending thumbnailer")
+	log.Debug("ending thumbnailer")
 
 	return nil
 }
