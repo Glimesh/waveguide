@@ -86,7 +86,7 @@ func (s *Stream) Ingest(ctx context.Context) error {
 		return err
 	}
 
-	if err := pc.SetRemoteDescription(
+	if err := pc.SetRemoteDescription( //nolint shadow
 		webrtc.SessionDescription{
 			Type: webrtc.SDPTypeOffer,
 			SDP:  string(offer),
@@ -100,7 +100,7 @@ func (s *Stream) Ingest(ctx context.Context) error {
 	}
 
 	gatherComplete := webrtc.GatheringCompletePromise(pc)
-	if err := pc.SetLocalDescription(answerSDP); err != nil {
+	if err := pc.SetLocalDescription(answerSDP); err != nil { //nolint shadow
 		return err
 	}
 	<-gatherComplete
@@ -145,57 +145,7 @@ func doHTTPRequest(uri, method string, body io.Reader, headers ...header) (*http
 func (s *Stream) startIngestor() {
 	done := make(chan struct{}, 1)
 
-	go func() {
-		for {
-			s.log.Debug("waiting for thumbnail request signal")
-			select {
-			case <-s.requestThumbnail:
-			case <-done:
-				s.log.Debug("stopping thumbnailer")
-				return
-			}
-			s.log.Debug("thumbnail request received")
-
-			for len(s.thumbnailReceiver) > 0 {
-				<-s.thumbnailReceiver
-			}
-			s.log.Debug("thumbnail buffer drained")
-
-			var pkt *rtp.Packet
-
-			t := time.Now()
-		LOOP:
-			for {
-				select {
-				case pkt = <-s.thumbnailReceiver:
-				case <-done:
-					s.log.Debug("stopping thumbnail receiver")
-					return
-				}
-
-				select {
-				case <-done:
-					s.log.Debug("stopping thumbnailer")
-					return
-				default:
-					// use a deadline of 10 seconds to retrieve a keyframe
-					if time.Since(t) > time.Second*10 {
-						s.log.Warn("keyframe not available")
-						break LOOP
-					}
-					keyframe := s.keyframer.NewKeyframe(pkt)
-					if keyframe != nil {
-						s.log.Info("got keyframe")
-						s.lastThumbnail <- keyframe
-						s.log.Debug("sent keyframe")
-						// reset and sleep after sending one keyframe
-						s.keyframer.Reset()
-						break LOOP
-					}
-				}
-			}
-		}
-	}()
+	go s.thumbnailer(done)
 
 	for p := range s.rtpIngest {
 		select {
@@ -207,4 +157,56 @@ func (s *Stream) startIngestor() {
 
 	done <- struct{}{}
 	s.log.Debug("ending rtp ingestor")
+}
+
+func (s *Stream) thumbnailer(done chan struct{}) {
+OUTER:
+	for {
+		s.log.Debug("waiting for thumbnail request signal")
+		select {
+		case <-s.requestThumbnail:
+		case <-done:
+			break OUTER
+		}
+		s.log.Debug("thumbnail request received")
+
+		for len(s.thumbnailReceiver) > 0 {
+			<-s.thumbnailReceiver
+		}
+		s.log.Debug("thumbnail buffer drained")
+
+		var pkt *rtp.Packet
+
+		t := time.Now()
+	INNER:
+		for {
+			select {
+			case pkt = <-s.thumbnailReceiver:
+			case <-done:
+				s.log.Debug("stopping thumbnail receiver")
+				break OUTER
+			}
+
+			select {
+			case <-done:
+				break OUTER
+			default:
+				// use a deadline of 10 seconds to retrieve a keyframe
+				if time.Since(t) > time.Second*10 {
+					s.log.Warn("keyframe not available")
+					break INNER
+				}
+				keyframe := s.keyframer.NewKeyframe(pkt)
+				if keyframe != nil {
+					s.log.Debug("got keyframe")
+					s.lastThumbnail <- keyframe
+					s.log.Debug("sent keyframe")
+					// reset and sleep after sending one keyframe
+					s.keyframer.Reset()
+					break INNER
+				}
+			}
+		}
+	}
+	s.log.Debug("ending thumbnailer")
 }

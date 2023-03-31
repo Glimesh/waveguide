@@ -294,11 +294,6 @@ func (ctrl *Control) sendThumbnail(channelID types.ChannelID) (err error) {
 		return err
 	}
 
-	// stream.cond.L.Lock()
-	// stream.thumbnailRequested = true
-	// stream.cond.Broadcast()
-	// stream.cond.L.Unlock()
-
 	// signal the stream thumnailer to get me some thumbnails
 	select {
 	case stream.requestThumbnail <- struct{}{}:
