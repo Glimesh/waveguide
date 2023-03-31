@@ -443,6 +443,13 @@ func (conn *FtlConnection) listenForMedia() error {
 	}, interceptor.RTPReaderFunc(func(b []byte, _ interceptor.Attributes) (int, interceptor.Attributes, error) { return len(b), nil, nil }))
 
 	go func() {
+		defer func() {
+			conn.log.Debug("Cleaning up FTL NACK handler & connection")
+			chain.Close()
+			generator.Close()
+			conn.Close()
+		}()
+
 		for rtcpBound, buffer := false, make([]byte, 1500); ; {
 			if !conn.mediaConnected {
 				return
@@ -451,7 +458,6 @@ func (conn *FtlConnection) listenForMedia() error {
 			n, addr, err := mediaConn.ReadFrom(buffer)
 			if err != nil {
 				conn.log.Error(errors.Wrap(ErrRead, err.Error()))
-				conn.Close()
 				return
 			}
 
@@ -467,18 +473,17 @@ func (conn *FtlConnection) listenForMedia() error {
 			if packet.Header.PayloadType == conn.Metadata.VideoPayloadType {
 				if err := conn.handler.OnVideo(packet); err != nil {
 					conn.log.Error(errors.Wrap(ErrWrite, err.Error()))
-					conn.Close()
 					return
 				}
 
 				// Only read video packets into our nack
 				if _, _, err := streamReader.Read(buf, nil); err != nil {
-					panic(err)
+					conn.log.Error(err)
+					return
 				}
 			} else if packet.Header.PayloadType == conn.Metadata.AudioPayloadType {
 				if err := conn.handler.OnAudio(packet); err != nil {
 					conn.log.Error(errors.Wrap(ErrWrite, err.Error()))
-					conn.Close()
 					return
 				}
 			} else {
