@@ -1,117 +1,212 @@
 package control
 
 import (
-	"bytes"
 	"context"
-	"fmt"
+	"errors"
 	"io"
 	"net/http"
+	"strings"
+	"time"
 
+	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v3"
 )
 
-// Note: This type of functionality will be common in Waveguide
-// However we should not do it like this :D
-func (s *Stream) thumbnailer(ctx context.Context, whepEndpoint string) error {
-	log := s.log.WithField("app", "thumbnailer")
+type header struct {
+	key   string
+	value string
+}
 
-	log.Info("Started Thumbnailer")
-	// Create a new PeerConnection
-	peerConnection, err := webrtc.NewPeerConnection(webrtc.Configuration{}) //nolint exhaustive struct
+func (s *Stream) Ingest(ctx context.Context) error {
+	logger := s.log.WithField("app", "ingest")
+	done := make(chan struct{}, 1)
+	go s.startIngestor()
+
+	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{}) //nolint exhaustive struct
 	if err != nil {
 		return err
 	}
-	defer peerConnection.Close()
 
-	peerConnection.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
-		kfer := NewKeyframer()
+	pc.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
+		cancelRead := make(chan struct{}, 1)
+		go func() {
+			<-done
+			s.log.Debug("exiting on track")
+		LOOP:
+			for {
+				select {
+				case <-s.lastThumbnail:
+				default:
+					s.log.Debug("thumbnail channel drained")
+					break LOOP
+				}
+			}
+			cancelRead <- struct{}{}
+		}()
+
 		codec := track.Codec()
 
 		if codec.MimeType == "video/H264" {
 			for {
 				select {
-				case <-ctx.Done():
-					log.Debug("received ctx cancel signal")
+				case <-cancelRead:
+					s.log.Debug("on track stop signal")
+					close(s.rtpIngest)
 					return
 				default:
-					// Read RTP Packets in a loop
-					p, _, readErr := track.ReadRTP()
+					pkt, _, readErr := track.ReadRTP()
 					if readErr != nil {
-						// Don't kill the thumbnailer after one weird RTP packet
-						continue
+						// terminate the ingestor is input stream is EOF
+						if errors.Is(readErr, io.EOF) {
+							s.log.Debugf("read: %v", readErr)
+							close(s.rtpIngest)
+							return
+						}
 					}
-
-					keyframe := kfer.WriteRTP(p)
-					if keyframe != nil {
-						// fmt.Printf("!!! PEER KEYFRAME !!! %s\n\n", kfer)
-						// saveImage(int(p.SequenceNumber), keyframe)
-						// os.WriteFile(fmt.Sprintf("%d-peer.h264", p.SequenceNumber), keyframe, 0666)
-						s.lastThumbnail <- keyframe
-						kfer.Reset()
-					}
+					s.rtpIngest <- pkt
 				}
 			}
 		}
 	})
 
-	url := fmt.Sprintf("%s/%d", whepEndpoint, s.ChannelID)
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer([]byte{}))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Accept", "application/sdp")
-	resp, err := http.DefaultClient.Do(req)
+	sdpHeader := header{"Accept", "application/sdp"}
+	resp, err := doHTTPRequest(
+		s.whepURI,
+		http.MethodPost,
+		strings.NewReader(""),
+		sdpHeader,
+	)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
+
+	offer, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return err
 	}
 
-	if err := peerConnection.SetRemoteDescription(webrtc.SessionDescription{
-		Type: webrtc.SDPTypeOffer,
-		SDP:  string(body),
-	}); err != nil {
+	if err := pc.SetRemoteDescription( //nolint shadow
+		webrtc.SessionDescription{
+			Type: webrtc.SDPTypeOffer,
+			SDP:  string(offer),
+		}); err != nil {
 		return err
 	}
 
-	answer, err := peerConnection.CreateAnswer(nil)
+	answerSDP, err := pc.CreateAnswer(nil)
 	if err != nil {
 		return err
 	}
 
-	// Create channel that is blocked until ICE Gathering is complete
-	gatherComplete := webrtc.GatheringCompletePromise(peerConnection)
-
-	if err := peerConnection.SetLocalDescription(answer); err != nil {
+	gatherComplete := webrtc.GatheringCompletePromise(pc)
+	if err := pc.SetLocalDescription(answerSDP); err != nil { //nolint shadow
 		return err
 	}
-
-	// Block until ICE Gathering is complete, disabling trickle ICE
-	// we do this because we only can exchange one signaling message
-	// in a production application you should exchange ICE Candidates via OnICECandidate
 	<-gatherComplete
 
-	answerSdp := peerConnection.LocalDescription().SDP
-	req2, err := http.NewRequest("POST", resp.Header.Get("location"), bytes.NewBufferString(answerSdp))
-	if err != nil {
-		return err
-	}
-	req2.Header.Set("Accept", "application/sdp")
-	_, err = http.DefaultClient.Do(req2)
+	answer := pc.LocalDescription().SDP
+	_, err = doHTTPRequest( //nolint response is ignored
+		resp.Header.Get("location"),
+		http.MethodPost,
+		strings.NewReader(answer),
+		sdpHeader,
+	)
 	if err != nil {
 		return err
 	}
 
-	select {
-	case <-ctx.Done():
-		log.Debug("received ctx done signal")
-	case <-s.stopThumbnailer:
-		log.Debug("received kill peersnap signal")
-	}
-	log.Debug("ending thumbnailer")
+	<-ctx.Done()
+	pc.Close()
+	done <- struct{}{}
+	logger.Debug("received ctx done signal")
 
 	return nil
+}
+
+func doHTTPRequest(uri, method string, body io.Reader, headers ...header) (*http.Response, error) {
+	req, err := http.NewRequest(method, uri, body)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, header := range headers {
+		req.Header.Set(header.key, header.value)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	return resp, nil
+}
+
+func (s *Stream) startIngestor() {
+	done := make(chan struct{}, 1)
+
+	go s.thumbnailer(done)
+
+	for p := range s.rtpIngest {
+		select {
+		case s.thumbnailReceiver <- p:
+		default:
+		}
+	}
+	s.log.Debug("closed ingestor listener")
+
+	done <- struct{}{}
+	s.log.Debug("ending rtp ingestor")
+}
+
+func (s *Stream) thumbnailer(done chan struct{}) {
+OUTER:
+	for {
+		s.log.Debug("waiting for thumbnail request signal")
+		select {
+		case <-s.requestThumbnail:
+		case <-done:
+			break OUTER
+		}
+		s.log.Debug("thumbnail request received")
+
+		for len(s.thumbnailReceiver) > 0 {
+			<-s.thumbnailReceiver
+		}
+		s.log.Debug("thumbnail buffer drained")
+
+		var pkt *rtp.Packet
+
+		t := time.Now()
+	INNER:
+		for {
+			select {
+			case pkt = <-s.thumbnailReceiver:
+			case <-done:
+				s.log.Debug("stopping thumbnail receiver")
+				break OUTER
+			}
+
+			select {
+			case <-done:
+				break OUTER
+			default:
+				// use a deadline of 10 seconds to retrieve a keyframe
+				if time.Since(t) > time.Second*10 {
+					s.log.Warn("keyframe not available")
+					break INNER
+				}
+				keyframe := s.keyframer.NewKeyframe(pkt)
+				if keyframe != nil {
+					s.log.Debug("got keyframe")
+					s.lastThumbnail <- keyframe
+					s.log.Debug("sent keyframe")
+					// reset and sleep after sending one keyframe
+					s.keyframer.Reset()
+					break INNER
+				}
+			}
+		}
+	}
+	s.log.Debug("ending thumbnailer")
 }
