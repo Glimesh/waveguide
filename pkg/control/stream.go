@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 
+	"github.com/Glimesh/waveguide/pkg/disk"
+	"github.com/Glimesh/waveguide/pkg/keyframer"
 	"github.com/Glimesh/waveguide/pkg/types"
 
 	"github.com/pion/rtp"
@@ -28,12 +30,15 @@ type Stream struct {
 
 	whepURI string
 
+	saveVideo   bool
+	videoWriter disk.VideoWriter
+
 	// mediaStarted is set after media bytes have come in from the client
 	mediaStarted bool
 	hasSomeAudio bool
 	hasSomeVideo bool
 
-	keyframer     *Keyframer
+	kf            *keyframer.Keyframer
 	rtpIngest     chan *rtp.Packet
 	lastThumbnail chan []byte
 	// channel used to signal thumbnailer to stop
@@ -41,6 +46,8 @@ type Stream struct {
 	stopHeartbeat     chan struct{}
 	requestThumbnail  chan struct{}
 	thumbnailReceiver chan *rtp.Packet
+
+	videoWriterChan chan *rtp.Packet
 
 	ChannelID types.ChannelID
 	StreamID  types.StreamID

@@ -11,6 +11,7 @@ import (
 
 	"github.com/Glimesh/waveguide/config"
 	"github.com/Glimesh/waveguide/pkg/h264"
+	"github.com/Glimesh/waveguide/pkg/keyframer"
 	"github.com/Glimesh/waveguide/pkg/orchestrator"
 	"github.com/Glimesh/waveguide/pkg/service"
 	"github.com/Glimesh/waveguide/pkg/types"
@@ -43,6 +44,10 @@ type Control struct {
 	HTTPSHostname  string `mapstructure:"https_hostname"`
 	HTTPSCert      string `mapstructure:"https_cert"`
 	HTTPSKey       string `mapstructure:"https_key"`
+
+	// Flag to enable saving video stream to file
+	// Currently it's global flag toggled from the config file
+	SaveVideo bool `mapstructure:"save_video"`
 }
 
 func New(
@@ -81,6 +86,9 @@ func New(
 		HTTPSHostname:  httpCfg.HTTPSHostname,
 		HTTPSCert:      httpCfg.HTTPSCert,
 		HTTPSKey:       httpCfg.HTTPSKey,
+
+		// this should be controlled at a stream level
+		SaveVideo: cfg.Control.SaveVideo,
 	}, nil
 }
 
@@ -358,7 +366,7 @@ func (ctrl *Control) newStream(channelID types.ChannelID, cancelFunc context.Can
 		authenticated: true,
 
 		cancelFunc:        cancelFunc,
-		keyframer:         NewKeyframer(),
+		kf:                keyframer.New(),
 		rtpIngest:         make(chan *rtp.Packet),
 		stopHeartbeat:     make(chan struct{}, 1),
 		stopThumbnailer:   make(chan struct{}, 1),
@@ -368,6 +376,13 @@ func (ctrl *Control) newStream(channelID types.ChannelID, cancelFunc context.Can
 		lastThumbnail: make(chan []byte, 1),
 
 		startTime: time.Now().Unix(),
+	}
+
+	// TODO: this shouldn't be a global flag
+	// but rather configured on per stream basis
+	if ctrl.SaveVideo {
+		stream.saveVideo = true
+		stream.videoWriterChan = make(chan *rtp.Packet, 100) // not sure what the buffer size here should be
 	}
 
 	if _, exists := ctrl.streams[channelID]; exists {
