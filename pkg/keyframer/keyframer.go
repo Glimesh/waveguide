@@ -1,4 +1,4 @@
-package control
+package keyframer
 
 import (
 	"crypto/sha256"
@@ -11,7 +11,7 @@ import (
 	"github.com/pion/rtp/codecs"
 )
 
-func NewKeyframer() *Keyframer {
+func New() *Keyframer {
 	return &Keyframer{
 		timestamp:    0,
 		frameStarted: false,
@@ -32,7 +32,7 @@ func (kf *Keyframer) Reset() {
 	kf.packets = make(map[uint16][]byte)
 }
 
-func (kf *Keyframer) NewKeyframe(p *rtp.Packet) []byte {
+func (kf *Keyframer) GetKeyframe(p *rtp.Packet) []byte {
 	// fmt.Printf("frameStarted=%t\n", kf.frameStarted)
 	// Frame has started, but timestamps don't match, continue
 	if kf.frameStarted && kf.timestamp != p.Timestamp {
@@ -87,7 +87,7 @@ func (kf *Keyframer) NewKeyframe(p *rtp.Packet) []byte {
 	return nil
 }
 
-func (kf *Keyframer) Keyframe() []byte {
+func (kf *Keyframer) LastFullKeyframe() []byte {
 	return kf.lastFullKeyframe
 }
 
