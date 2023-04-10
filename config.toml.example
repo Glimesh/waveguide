@@ -27,3 +27,4 @@ service = "dummy"
 orchestrator = "dummy"
 http_server_type = "http"
 http_address = "localhost:8091"
+save_video = false
