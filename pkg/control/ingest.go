@@ -6,20 +6,14 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
 
-	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v3"
 )
-
-type header struct {
-	key   string
-	value string
-}
 
 func (s *Stream) Ingest(ctx context.Context) error {
 	logger := s.log.WithField("app", "ingest")
 	done := make(chan struct{}, 1)
+
 	go s.startIngestor()
 
 	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{}) //nolint exhaustive struct
@@ -47,6 +41,7 @@ func (s *Stream) Ingest(ctx context.Context) error {
 		codec := track.Codec()
 
 		if codec.MimeType == "video/H264" {
+			s.configureVideoWriter(webrtc.MimeTypeH264)
 			for {
 				select {
 				case <-cancelRead:
@@ -124,6 +119,38 @@ func (s *Stream) Ingest(ctx context.Context) error {
 	return nil
 }
 
+func (s *Stream) startIngestor() {
+	doneThumb := make(chan struct{}, 1)
+	doneWriter := make(chan struct{}, 1)
+
+	go s.thumbnailer(doneThumb)
+	if s.saveVideo {
+		go s.writer(doneWriter)
+	}
+
+	for p := range s.rtpIngest {
+		select {
+		case s.thumbnailReceiver <- p.Clone():
+		default:
+		}
+
+		select {
+		case s.videoWriterChan <- p.Clone():
+		default:
+		}
+	}
+	s.log.Debug("closed ingestor listener")
+
+	doneThumb <- struct{}{}
+	doneWriter <- struct{}{}
+	s.log.Debug("ending rtp ingestor")
+}
+
+type header struct {
+	key   string
+	value string
+}
+
 func doHTTPRequest(uri, method string, body io.Reader, headers ...header) (*http.Response, error) {
 	req, err := http.NewRequest(method, uri, body)
 	if err != nil {
@@ -140,73 +167,4 @@ func doHTTPRequest(uri, method string, body io.Reader, headers ...header) (*http
 	}
 
 	return resp, nil
-}
-
-func (s *Stream) startIngestor() {
-	done := make(chan struct{}, 1)
-
-	go s.thumbnailer(done)
-
-	for p := range s.rtpIngest {
-		select {
-		case s.thumbnailReceiver <- p:
-		default:
-		}
-	}
-	s.log.Debug("closed ingestor listener")
-
-	done <- struct{}{}
-	s.log.Debug("ending rtp ingestor")
-}
-
-func (s *Stream) thumbnailer(done chan struct{}) {
-OUTER:
-	for {
-		s.log.Debug("waiting for thumbnail request signal")
-		select {
-		case <-s.requestThumbnail:
-		case <-done:
-			break OUTER
-		}
-		s.log.Debug("thumbnail request received")
-
-		for len(s.thumbnailReceiver) > 0 {
-			<-s.thumbnailReceiver
-		}
-		s.log.Debug("thumbnail buffer drained")
-
-		var pkt *rtp.Packet
-
-		t := time.Now()
-	INNER:
-		for {
-			select {
-			case pkt = <-s.thumbnailReceiver:
-			case <-done:
-				s.log.Debug("stopping thumbnail receiver")
-				break OUTER
-			}
-
-			select {
-			case <-done:
-				break OUTER
-			default:
-				// use a deadline of 10 seconds to retrieve a keyframe
-				if time.Since(t) > time.Second*10 {
-					s.log.Warn("keyframe not available")
-					break INNER
-				}
-				keyframe := s.keyframer.NewKeyframe(pkt)
-				if keyframe != nil {
-					s.log.Debug("got keyframe")
-					s.lastThumbnail <- keyframe
-					s.log.Debug("sent keyframe")
-					// reset and sleep after sending one keyframe
-					s.keyframer.Reset()
-					break INNER
-				}
-			}
-		}
-	}
-	s.log.Debug("ending thumbnailer")
 }

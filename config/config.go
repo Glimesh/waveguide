@@ -73,6 +73,8 @@ type Config struct {
 		HTTPSHostname  string `fig:"https_hostname"`
 		HTTPSCert      string `fig:"https_cert"`
 		HTTPSKey       string `fig:"https_key"`
+
+		SaveVideo bool `fig:"save_video"`
 	}
 }
 
@@ -80,7 +82,7 @@ func Load() (Config, error) {
 	var cfg Config
 
 	if err := fig.Load(&cfg, fig.File("config.toml"), fig.Dirs(".")); err != nil {
-		return cfg, nil
+		return cfg, err
 	}
 
 	return cfg, nil
