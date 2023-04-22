@@ -250,6 +250,7 @@ func (s *Source) Listen(ctx context.Context) {
 		w.Header().Add("Access-Control-Expose-Headers", "expire")
 		w.Header().Add("Content-Type", "application/sdp")
 		w.Header().Add("Expire", ttl.Format(http.TimeFormat))
+		w.WriteHeader(http.StatusCreated)
 
 		fmt.Fprint(w, peerConnection.LocalDescription().SDP)
 	})
