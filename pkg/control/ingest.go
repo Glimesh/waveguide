@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -14,17 +15,20 @@ func (s *Stream) Ingest(ctx context.Context) error {
 	logger := s.log.WithField("app", "ingest")
 	done := make(chan struct{}, 1)
 
-	go s.startIngestor()
-
 	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{}) //nolint exhaustive struct
 	if err != nil {
 		return err
 	}
 
+	s.videoWriter = &noopFileWriter{}
+
+	go s.startVideoIngestor()
+
 	pc.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
 		cancelRead := make(chan struct{}, 1)
 		go func() {
 			<-done
+			s.videoWriter.Done()
 			s.log.Debug("exiting on track")
 		LOOP:
 			for {
@@ -40,8 +44,19 @@ func (s *Stream) Ingest(ctx context.Context) error {
 
 		codec := track.Codec()
 
-		if codec.MimeType == "video/H264" {
-			s.configureVideoWriter(webrtc.MimeTypeH264)
+		if trackCodec := codec.MimeType; trackCodec == webrtc.MimeTypeH264 {
+			if s.saveVideo {
+				filename := fmt.Sprintf("stream.%d.%s", s.StreamID, "out.h264")
+				videoFileWriter := NewVideoWriter(
+					s.log.WithField("file-writer", webrtc.MimeTypeH264),
+					webrtc.MimeTypeH264,
+					filename,
+				)
+				s.videoWriter = videoFileWriter
+
+				go videoFileWriter.Run()
+			}
+
 			for {
 				select {
 				case <-cancelRead:
@@ -119,14 +134,10 @@ func (s *Stream) Ingest(ctx context.Context) error {
 	return nil
 }
 
-func (s *Stream) startIngestor() {
+func (s *Stream) startVideoIngestor() {
 	doneThumb := make(chan struct{}, 1)
-	doneWriter := make(chan struct{}, 1)
 
 	go s.thumbnailer(doneThumb)
-	if s.saveVideo {
-		go s.writer(doneWriter)
-	}
 
 	for p := range s.rtpIngest {
 		select {
@@ -134,15 +145,11 @@ func (s *Stream) startIngestor() {
 		default:
 		}
 
-		select {
-		case s.videoWriterChan <- p.Clone():
-		default:
-		}
+		s.videoWriter.SendRTP(p)
 	}
 	s.log.Debug("closed ingestor listener")
 
 	doneThumb <- struct{}{}
-	doneWriter <- struct{}{}
 	s.log.Debug("ending rtp ingestor")
 }
 

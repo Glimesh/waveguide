@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 
-	"github.com/Glimesh/waveguide/pkg/disk"
 	"github.com/Glimesh/waveguide/pkg/keyframer"
 	"github.com/Glimesh/waveguide/pkg/types"
 
@@ -31,7 +30,7 @@ type Stream struct {
 	whepURI string
 
 	saveVideo   bool
-	videoWriter disk.VideoWriter
+	videoWriter FileWriter
 
 	// mediaStarted is set after media bytes have come in from the client
 	mediaStarted bool
