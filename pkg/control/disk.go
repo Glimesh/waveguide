@@ -1,35 +1,72 @@
 package control
 
-import "github.com/Glimesh/waveguide/pkg/disk"
+import (
+	"github.com/Glimesh/waveguide/pkg/disk"
+	"github.com/pion/rtp"
+	"github.com/sirupsen/logrus"
+)
 
-func (s *Stream) configureVideoWriter(codec string) {
-	videoWriter := disk.NewNoopVideoWriter()
-	if s.saveVideo {
-		if vw, err := disk.NewVideoWriter(codec, "out.h264"); err == nil {
-			videoWriter = vw
-		} else {
-			s.log.Debug("video save enabled but failed to create video writer")
-			s.log.Warnf("video writer: %v", err)
-			s.log.Debug("falling back to noop video writer")
-		}
-	}
-	s.videoWriter = videoWriter
+type FileWriter interface {
+	SendRTP(p *rtp.Packet)
+	Run()
+	Done()
 }
 
-func (s *Stream) writer(done chan struct{}) {
-	s.log.Debug("starting file writer")
+type noopFileWriter struct{}
+
+func (noop *noopFileWriter) SendRTP(_ *rtp.Packet) {}
+func (noop *noopFileWriter) Run()                  {}
+func (noop *noopFileWriter) Done()                 {}
+
+type fileWriter struct {
+	log      logrus.FieldLogger
+	writer   disk.Writer
+	packetCh chan *rtp.Packet
+	done     chan struct{}
+	codec    string
+}
+
+func NewVideoWriter(log logrus.FieldLogger, codec, filename string) *fileWriter {
+	writer, err := disk.NewVideoWriter(codec, filename)
+	// TODO: handle error
+	if err != nil {
+		panic(err)
+	}
+
+	return &fileWriter{
+		writer:   writer,
+		codec:    codec,
+		log:      log,
+		packetCh: make(chan *rtp.Packet, 100),
+		done:     make(chan struct{}, 1),
+	}
+}
+
+func (fw *fileWriter) SendRTP(p *rtp.Packet) {
+	select {
+	case fw.packetCh <- p:
+	default:
+	}
+}
+
+func (fw *fileWriter) Run() {
+	fw.log.Debug("starting file writer")
 LOOP:
 	for {
 		select {
-		case <-done:
+		case <-fw.done:
 			break LOOP
-		case p := <-s.videoWriterChan:
-			if err := s.videoWriter.WriteVideo(p); err != nil {
-				s.log.Debugf("writer: %v", err)
+		case p := <-fw.packetCh:
+			if err := fw.writer.WriteRTP(p); err != nil {
+				fw.log.Debugf("writer: %v", err)
 				break LOOP
 			}
 		}
 	}
-	s.log.Debug("ending writer")
-	s.videoWriter.Close()
+	fw.log.Debug("ending writer")
+	fw.writer.Close()
+}
+
+func (fw *fileWriter) Done() {
+	fw.done <- struct{}{}
 }
