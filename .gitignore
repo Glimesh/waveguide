@@ -40,3 +40,8 @@ test/*.ogg
 test/*.mp4
 
 private/
+
+
+# Files saved by file writer
+*.h264
+*.ogg
