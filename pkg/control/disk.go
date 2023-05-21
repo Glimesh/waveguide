@@ -2,6 +2,7 @@ package control
 
 import (
 	"github.com/Glimesh/waveguide/pkg/disk"
+
 	"github.com/pion/rtp"
 	"github.com/sirupsen/logrus"
 )
@@ -23,23 +24,6 @@ type fileWriter struct {
 	writer   disk.Writer
 	packetCh chan *rtp.Packet
 	done     chan struct{}
-	codec    string
-}
-
-func NewVideoWriter(log logrus.FieldLogger, codec, filename string) *fileWriter {
-	writer, err := disk.NewVideoWriter(codec, filename)
-	// TODO: handle error
-	if err != nil {
-		panic(err)
-	}
-
-	return &fileWriter{
-		writer:   writer,
-		codec:    codec,
-		log:      log,
-		packetCh: make(chan *rtp.Packet, 100),
-		done:     make(chan struct{}, 1),
-	}
 }
 
 func (fw *fileWriter) SendRTP(p *rtp.Packet) {
