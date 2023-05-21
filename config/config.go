@@ -75,6 +75,7 @@ type Config struct {
 		HTTPSKey       string `fig:"https_key"`
 
 		SaveVideo bool `fig:"save_video"`
+		SaveAudio bool `fig:"save_audio"`
 	}
 }
 

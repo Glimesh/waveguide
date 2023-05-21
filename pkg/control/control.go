@@ -45,9 +45,10 @@ type Control struct {
 	HTTPSCert      string `mapstructure:"https_cert"`
 	HTTPSKey       string `mapstructure:"https_key"`
 
-	// Flag to enable saving video stream to file
+	// Flag to enable saving audio/video stream to file
 	// Currently it's global flag toggled from the config file
 	SaveVideo bool `mapstructure:"save_video"`
+	SaveAudio bool `mapstructure:"save_audio"`
 }
 
 func New(
@@ -87,8 +88,9 @@ func New(
 		HTTPSCert:      httpCfg.HTTPSCert,
 		HTTPSKey:       httpCfg.HTTPSKey,
 
-		// this should be controlled at a stream level
+		// these should be controlled at a stream level
 		SaveVideo: cfg.Control.SaveVideo,
+		SaveAudio: cfg.Control.SaveAudio,
 	}, nil
 }
 
@@ -358,7 +360,7 @@ func (ctrl *Control) sendThumbnail(channelID types.ChannelID) (err error) {
 }
 
 func (ctrl *Control) newStream(channelID types.ChannelID, cancelFunc context.CancelFunc) (*Stream, error) {
-	stream := &Stream{ //nolint exhaustive struct
+	stream := &Stream{ //nolint
 		ChannelID: channelID,
 
 		log:           ctrl.log.WithField("channel_id", channelID),
@@ -372,17 +374,24 @@ func (ctrl *Control) newStream(channelID types.ChannelID, cancelFunc context.Can
 		stopThumbnailer:   make(chan struct{}, 1),
 		thumbnailReceiver: make(chan *rtp.Packet, 50),
 		requestThumbnail:  make(chan struct{}, 1),
+		videoWriter:       &noopFileWriter{},
+		audioWriter:       &noopFileWriter{},
 
 		lastThumbnail: make(chan []byte, 1),
 
 		startTime: time.Now().Unix(),
 	}
 
-	// TODO: this shouldn't be a global flag
-	// but rather configured on per stream basis
+	// TODO1: this shouldn't be a global flag
+	// TODO2: but rather configured on per stream basis
+	// TODO3: this looks messy and there's probably a better way of doing it
 	if ctrl.SaveVideo {
 		stream.saveVideo = true
 		stream.videoWriterChan = make(chan *rtp.Packet, 100) // not sure what the buffer size here should be
+	}
+	if ctrl.SaveAudio {
+		stream.saveAudio = true
+		stream.audioWriterChan = make(chan *rtp.Packet, 100) // not sure what the buffer size here should be
 	}
 
 	if _, exists := ctrl.streams[channelID]; exists {

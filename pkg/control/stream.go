@@ -30,7 +30,9 @@ type Stream struct {
 	whepURI string
 
 	saveVideo   bool
+	saveAudio   bool
 	videoWriter FileWriter
+	audioWriter FileWriter
 
 	// mediaStarted is set after media bytes have come in from the client
 	mediaStarted bool
@@ -47,6 +49,7 @@ type Stream struct {
 	thumbnailReceiver chan *rtp.Packet
 
 	videoWriterChan chan *rtp.Packet
+	audioWriterChan chan *rtp.Packet
 
 	ChannelID types.ChannelID
 	StreamID  types.StreamID
