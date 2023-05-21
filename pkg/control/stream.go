@@ -32,16 +32,15 @@ type Stream struct {
 	saveVideo   bool
 	saveAudio   bool
 	videoWriter FileWriter
-	audioWriter FileWriter
 
 	// mediaStarted is set after media bytes have come in from the client
 	mediaStarted bool
 	hasSomeAudio bool
 	hasSomeVideo bool
 
-	kf            *keyframer.Keyframer
-	rtpIngest     chan *rtp.Packet
-	lastThumbnail chan []byte
+	kf             *keyframer.Keyframer
+	videoRTPIngest chan *rtp.Packet
+	lastThumbnail  chan []byte
 	// channel used to signal thumbnailer to stop
 	stopThumbnailer   chan struct{}
 	stopHeartbeat     chan struct{}

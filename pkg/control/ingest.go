@@ -9,13 +9,19 @@ import (
 	"strings"
 
 	"github.com/Glimesh/waveguide/pkg/disk"
+
+	"github.com/livekit/server-sdk-go/pkg/samplebuilder"
 	"github.com/pion/rtp"
+	"github.com/pion/rtp/codecs"
 	"github.com/pion/webrtc/v3"
+	"github.com/pion/webrtc/v3/pkg/media"
+	"github.com/pion/webrtc/v3/pkg/media/oggwriter"
 )
 
 func (s *Stream) Ingest(ctx context.Context) error {
 	logger := s.log.WithField("app", "ingest")
-	done := make(chan struct{}, 1)
+	doneVideo := make(chan struct{}, 1)
+	doneAudio := make(chan struct{}, 1)
 
 	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{}) //nolint exhaustive struct
 	if err != nil {
@@ -24,67 +30,67 @@ func (s *Stream) Ingest(ctx context.Context) error {
 
 	go s.startVideoIngestor()
 
+	// TODO: refactor the following OnTrack callback logic
 	pc.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
-		cancelRead := make(chan struct{}, 1)
-		go func() {
-			// this goroutine spawns each time for audio & video track
-			// for now it leaking as there's no way to cancel it
-			// for the audio track
-			// TODO: fix goroutine leak for audio track
-			s.log.Debug("starting cancel read loop")
-			<-done
-			s.videoWriter.Done()
-		LOOP:
-			for {
-				select {
-				// drain the thumbnail channel on exit
-				case <-s.lastThumbnail:
-				default:
-					s.log.Debug("thumbnail channel drained")
-					break LOOP
-				}
-			}
-			// cancel the read loop and stop the ingestion
-			s.log.Debug("exiting cancel read loop")
-			cancelRead <- struct{}{}
-		}()
-
 		codec := track.Codec().MimeType
 		kind := track.Kind()
 
 		// only h264 codec is supported for now, hence the check below
 		// this will probably have to go away once support for other codecs is added
+
+		// refactoring idea for future me
+		// one approach is to construct ingestor structs for audio and video media
+		// the respective ingestor holds the reference to the remote track
+		// and the appropriate sub-consumers e.g. the video ingestor holds the thumbnailer
+		// and the file-writer while the audio ingestor holds just the file writer
+		//
+		// the respective ingestor then holds the logic for multiplexing/writing
+		// the rtp packets from the remote track to its consumers
 		if trackCodec := codec; trackCodec == webrtc.MimeTypeH264 {
 			s.log.Debug("got h264 track")
-			writer, err := s.initFileWriter(codec, kind) //nolint no shadow
-			if err != nil {
-				s.log.Debugf("failed to init video file writer: %v", err)
+			cancelRead := s.cancelVideoRead(doneVideo)
+			if s.saveVideo {
+				err := s.initFileWriter(codec, kind) //nolint no shadow
+				if err != nil {
+					s.log.Debugf("failed to init video file writer: %v", err)
+				}
+				go s.videoWriter.Run()
 			}
-			s.videoWriter = writer
-			go s.videoWriter.Run()
 
 			for {
 				select {
 				case <-cancelRead:
-					s.log.Debug("on track stop signal")
-					close(s.rtpIngest)
+					s.log.Debug("on video track stop signal")
+					close(s.videoRTPIngest)
 					return
 				default:
 				}
 				pkt, _, readErr := track.ReadRTP()
-				if readErr != nil {
+				if readErr != nil && errors.Is(readErr, io.EOF) {
 					// terminate the ingestor is input stream is EOF
-					if errors.Is(readErr, io.EOF) {
-						s.log.Debugf("read: %v", readErr)
-						close(s.rtpIngest)
-						return
-					}
+					s.log.Debugf("read: %v", readErr)
+					close(s.videoRTPIngest)
+					return
 				}
-				s.rtpIngest <- pkt
+				s.videoRTPIngest <- pkt
 			}
 		} else if trackCodec == webrtc.MimeTypeOpus {
-			// TODO: implement opus writer
 			s.log.Debug("got opus track")
+			if s.saveAudio {
+				cancelRead := s.cancelAudioRead(doneAudio)
+				s.log.Debug("audio file writer enabled")
+				sb := samplebuilder.New(10, &codecs.OpusPacket{}, track.Codec().ClockRate)
+				writer, err := oggwriter.New(s.StreamID.String()+".ogg", 48000, track.Codec().Channels)
+				if err != nil {
+					return
+				}
+				t := &TrackWriter{
+					writer: writer,
+					sb:     sb,
+					track:  track,
+				}
+				go t.start(cancelRead)
+			}
 		}
 	})
 
@@ -136,47 +142,113 @@ func (s *Stream) Ingest(ctx context.Context) error {
 	}
 
 	<-ctx.Done()
-	pc.Close()
-	done <- struct{}{}
 	logger.Debug("received ctx done signal")
+	pc.Close()
+	doneVideo <- struct{}{}
+	doneAudio <- struct{}{}
 
 	return nil
 }
 
-func (s *Stream) initFileWriter(mime string, kind webrtc.RTPCodecType) (FileWriter, error) {
+type TrackWriter struct {
+	sb     *samplebuilder.SampleBuilder
+	writer media.Writer
+	track  *webrtc.TrackRemote
+}
+
+func (t *TrackWriter) start(cancel chan struct{}) {
+	defer t.writer.Close()
+	for {
+		select {
+		case <-cancel:
+			return
+		default:
+		}
+		pkt, _, err := t.track.ReadRTP()
+		if err != nil {
+			break
+		}
+		t.sb.Push(pkt)
+
+		for _, p := range t.sb.PopPackets() {
+			t.writer.WriteRTP(p)
+		}
+	}
+}
+
+func (s *Stream) cancelAudioRead(done chan struct{}) chan struct{} {
+	cancel := make(chan struct{}, 1)
+	go func() {
+		s.log.Debug("starting cancel audio read loop")
+		<-done
+		// cancel the read loop and stop the ingestion
+		cancel <- struct{}{}
+		s.log.Debug("exiting cancel audio read loop")
+	}()
+	return cancel
+}
+
+func (s *Stream) cancelVideoRead(done chan struct{}) chan struct{} {
+	cancel := make(chan struct{}, 1)
+	go func() {
+		s.log.Debug("starting cancel video read loop")
+		<-done
+		s.videoWriter.Done()
+	LOOP:
+		for {
+			select {
+			// drain the thumbnail channel on exit
+			case <-s.lastThumbnail:
+			default:
+				s.log.Debug("thumbnail channel drained")
+				break LOOP
+			}
+		}
+		// cancel the read loop and stop the ingestion
+		s.log.Debug("exiting cancel video read loop")
+		cancel <- struct{}{}
+	}()
+	return cancel
+}
+
+// initFileWriter initializes the file writer and sets it for the
+// stream based on the codec mime and type
+func (s *Stream) initFileWriter(mime string, kind webrtc.RTPCodecType) error {
 	var (
 		writer   disk.Writer
 		err      error
 		streamID = fmt.Sprintf("%d", s.StreamID)
+		fw       = &fileWriter{ //nolint
+			log:      s.log.WithField("file-writer", mime),
+			packetCh: make(chan *rtp.Packet, 100),
+			done:     make(chan struct{}, 1),
+		}
 	)
+
 	switch kind {
 	case webrtc.RTPCodecTypeVideo:
-		if s.saveVideo {
-			writer, err = disk.NewVideoWriter(mime, streamID)
+		writer, err = disk.NewVideoWriter(mime, streamID)
+		if err != nil {
+			return err
 		}
-	case webrtc.RTPCodecTypeAudio:
-		if s.saveAudio {
-			writer, err = disk.NewAudioWriter(mime, streamID)
-		}
-	}
-	if err != nil {
-		return nil, err
-	}
+		fw.writer = writer
+		s.videoWriter = fw
+		return nil
 
-	return &fileWriter{
-		writer:   writer,
-		log:      s.log.WithField("file-writer", mime),
-		packetCh: make(chan *rtp.Packet, 100),
-		done:     make(chan struct{}, 1),
-	}, nil
+		// not needed?
+	case webrtc.RTPCodecTypeAudio:
+
+	default:
+		s.log.Panicf("unknown codec type: %v", kind)
+	}
+	return nil
 }
 
 func (s *Stream) startVideoIngestor() {
 	doneThumb := make(chan struct{}, 1)
-
 	go s.thumbnailer(doneThumb)
 
-	for p := range s.rtpIngest {
+	for p := range s.videoRTPIngest {
 		select {
 		case s.thumbnailReceiver <- p.Clone():
 		default:
@@ -184,7 +256,6 @@ func (s *Stream) startVideoIngestor() {
 
 		s.videoWriter.SendRTP(p)
 	}
-	s.log.Debug("closed ingestor listener")
 
 	doneThumb <- struct{}{}
 	s.log.Debug("ending rtp ingestor")

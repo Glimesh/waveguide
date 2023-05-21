@@ -369,13 +369,12 @@ func (ctrl *Control) newStream(channelID types.ChannelID, cancelFunc context.Can
 
 		cancelFunc:        cancelFunc,
 		kf:                keyframer.New(),
-		rtpIngest:         make(chan *rtp.Packet),
+		videoRTPIngest:    make(chan *rtp.Packet),
 		stopHeartbeat:     make(chan struct{}, 1),
 		stopThumbnailer:   make(chan struct{}, 1),
 		thumbnailReceiver: make(chan *rtp.Packet, 50),
 		requestThumbnail:  make(chan struct{}, 1),
 		videoWriter:       &noopFileWriter{},
-		audioWriter:       &noopFileWriter{},
 
 		lastThumbnail: make(chan []byte, 1),
 
